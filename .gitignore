@@ -1,0 +1,23 @@
+# Local runtime copies, test worlds, evidence, and recovery material
+/build/
+/backups/
+/dist/
+
+# Generated Java/Python files
+*.class
+__pycache__/
+*.py[cod]
+
+# Machine-local configuration
+.env
+.env.*
+!.env.example
+/.idea/
+/.vscode/
+
+# Local paths, deployment history and private review material
+/.local-paths.json
+/PRIVACY_REVIEW*.md
+/tests/record_deployment.py
+/tests/record_polish_candidate.py
+/tests/finalize_report.py

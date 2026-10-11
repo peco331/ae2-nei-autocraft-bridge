@@ -1,0 +1,4 @@
+Manifest-Version: 1.0
+FMLCorePlugin: ae2nei.core.AE2NEILoadingPlugin
+FMLCorePluginContainsFMLMod: true
+

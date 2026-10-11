@@ -1,0 +1,83 @@
+# AE2 NEI AutoCraft Bridge
+
+**为 AE2 合成终端添加 GTNH NEI 自动合成支持。**
+
+直接使用 ME 库存执行 NEI 书签中的合成链，成品进入玩家背包。沿用 NEI 的收藏配方、书签组和自动合成快捷键，支持“合成物品”和“合成缺失物品”。
+
+如果你已经用过工作台里的 NEI 合成链，现在可以在 ME 合成终端里执行同样的操作，让它从 ME 网络获取原料。
+
+Adds GTNH **NEI autocrafting** support to **AE2 Crafting Terminals**. Run bookmarked crafting chains using items in your ME network, with results delivered to your inventory. Supports **Craft Items** and **Craft Missing Items**.
+
+这是 Minecraft 1.7.10 的独立、非官方附加模组。下载本桥接 JAR 即可，无需替换 AE2、NEI 或 NotEnoughEnergistics 的原始 JAR。只处理工作台配方；使用 NEI 收藏配方组织合成链。
+
+## 下载与安装
+
+从 [Releases](https://github.com/peco331/ae2-nei-autocraft-bridge/releases) 下载 `ae2-nei-autocraft-bridge-1.1.1.jar`。
+
+1. 正常保存并退出游戏和服务器。
+2. 将同一版本的桥接 JAR 放入客户端和服务端的 `mods/`，移除旧版本的本桥接模组。
+3. 启动游戏，打开 AE2 合成终端，使用 NEI 自动合成操作。
+
+**多人游戏必须在客户端和服务端安装同一版本。** 客户端接入 NEI 并发送桥接请求；服务端执行真实合成、处理合成次数限制并返回库存结果。只装一端无法完成这套协议，版本不同或缺少对端桥接模组时握手会拒绝连接。
+
+单人游戏只需放入客户端 `mods/`，同一个 JAR 会同时加载到客户端和内置服务器。GTNH 所需的运行环境仍以整合包要求为准；桥接 JAR 的字节码目标为 Java 8。
+
+## 怎样使用
+
+1. 在 NEI 配方页点击心形按钮，收藏目标物品和所需中间材料的工作台配方。
+2. 对目标配方的心形按钮按 `Shift+A`，将收藏配方组成的合成链加入左侧书签栏；按住 `Ctrl` 滚动鼠标滚轮调整书签中的目标数量。
+3. 打开 **ME 合成终端**，将鼠标放在书签组左侧的绿色括号上，使用 `Shift+C` 执行该组的合成链，或使用 `Shift+Ctrl+C` 只合成缺失物品。
+
+鼠标指向书签组内某个产物时，NEI 会执行通向该产物的步骤。要执行整组，指向该组的括号。NEI 设置中的“自动合成”需要开启；合成期间保持终端打开。ME 网络需要供电和提取权限，背包需要有空间接收产物。
+
+以下是 GTNH NEI 的默认快捷键；如果改过键位，以 NEI 设置和悬浮提示为准。
+
+| 操作 | 默认快捷键 | 行为 |
+| --- | --- | --- |
+| 合成物品 / Craft Items | `Shift+C` | 按 NEI“合成物品”模式执行设定的合成计划 |
+| 合成缺失物品 / Craft Missing Items | `Shift+Ctrl+C` | 用已有库存抵扣目标，只制作不足部分 |
+| 书签组批量/连锁合成 | 在合成模式的书签组上使用以上快捷键 | 执行该组的合成计划；添加 `Ctrl` 时只补缺失数量 |
+
+ME 库存、玩家背包和终端合成格共同参与 NEI 的合成链计算；中间材料已有库存时，可以直接使用。实际填格、耗料和合成都由服务端执行，成品会合并到背包内相同的可堆叠物品中。这些操作共用 NEI 的自动合成任务；更改 NEI 快捷键后仍走同一流程。
+
+名称沿用 GTNH NEI 的 [Autocrafting / Crafting Chain / Craft Missing Items](https://github.com/GTNewHorizons/NotEnoughItems/blob/2.8.159-GTNH/src/main/resources/assets/nei/lang/en_US.lang)。本桥接模组让这套 NEI 自动合成工作流在 ME 合成终端里使用网络库存。
+
+配方查看、配方填充、取出书签物品和合成链显示由 NEI/NEE 自身提供，继续使用它们原有的操作。本桥接模组不扩展这些操作的能力。
+
+## 1.1.1 提供什么
+
+- 在 AE2 合成终端中执行 NEI 自动合成，支持先制作中间材料再制作目标物品。
+- 按服务端实际合成次数确认结果，限制一次请求的数量，避免客户端虚拟耗料/产物与真实库存脱节。
+- 将同物品、同 NBT 的可堆叠产物合并；保留物品自身的堆叠上限。
+- 请求结束后尝试将合成格余料返回 ME；网络拒收时尝试放回背包，两边都装不下则留在合成格。
+- 正常请求不刷日志，重复异常限频；服务端按 tick 分段执行合成，并缓存反射成员以减少开销。
+
+## 兼容性与范围
+
+| 组件 | 验证情况 |
+| --- | --- |
+| Minecraft / Forge | 1.7.10 / 10.13.4.1614；GTNH 2.9.0-RC-1 隔离运行验证 |
+| AE2 GTNH | 本地 `rv3-beta-1078-GTNH-rc1-terminal-fixes.2`：原生服务端合成验证；官方 `rv3-beta-1078-GTNH`、`rv3-beta-1082-GTNH`：桥接钩子字节码验证 |
+| NEI GTNH | `2.8.145-GTNH`：RC1 验证；`2.8.159-GTNH`：桥接钩子字节码验证 |
+| NotEnoughEnergistics | `1.7.45`：终端处理器适配核对 |
+
+桥接只执行 NEI 已知的 2×2/3×3 工作台配方，不执行机器配方，也不向 AE2 合成 CPU 发起样板自动合成请求。普通工作台继续使用 NEI 原有流程。其他 AE2/NEI 分支或版本可能缺少所需钩子，不能仅凭模组名推定兼容。
+
+**已知限制：**
+
+- 1.1.1 每一步产物先进入背包。若中间配方一次产出 4 个、下游只需 2 个，剩余 2 个可能留在背包；这是配方批量余量。中间产物自动归还 ME 的改动不包含在本次发行中。
+- 终端关闭、网络断电、权限不足、背包已满或请求超时可能中止合成；已完成的步骤保留，不会自动撤销或重试不确定的结果。
+- tick 分段使用软预算，单次原生合成或大型库存快照仍可能超过预算；大型基地的实际 TPS 尚未完成性能验收。
+- 最新官方 AE2/NEI 通过的是定向钩子检查，不代表已完成整个新版整合包的游戏内验收。无线终端及复杂工具耐久、容器返还、矿辞替代配方链仍需进一步验证。
+
+## 报告问题
+
+请在 [Issues](https://github.com/peco331/ae2-nei-autocraft-bridge/issues) 提供整合包和 AE2/NEI/NEE/桥接版本、目标配方与数量、实际按键、失败表现及相关客户端/服务端日志。涉及库存数量时，请说明合成前后背包、ME 和合成格的变化。
+
+日志前缀是 `[AE2-NEI-Bridge]`。排查时可临时添加 JVM 参数 `-Dae2nei.debug=true` 开启请求明细；平时保持关闭。
+
+## 开发与许可证
+
+源码采用 [MIT](LICENSE) 许可证；第三方项目保留各自许可证，见 [THIRD_PARTY.md](THIRD_PARTY.md)。本项目不代表 GTNH 或 AE2 官方。
+
+构建与验证说明见 [DEVELOPMENT.md](DEVELOPMENT.md)。用户直接下载发行版 JAR 即可。

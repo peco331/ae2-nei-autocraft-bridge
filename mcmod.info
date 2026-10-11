@@ -1,0 +1,16 @@
+[
+  {
+    "modid": "ae2neiautocraftbridge",
+    "name": "AE2 NEI AutoCraft Bridge",
+    "description": "Adds GTNH NEI autocrafting support to AE2 Crafting Terminals. Run bookmarked crafting chains using ME network items, including Craft Missing Items.",
+    "version": "1.1.1",
+    "mcversion": "1.7.10",
+    "url": "https://github.com/peco331/ae2-nei-autocraft-bridge",
+    "updateUrl": "",
+    "authorList": ["peco331"],
+    "credits": "AE2, NEI and NotEnoughEnergistics contributors; independent unofficial addon.",
+    "logoFile": "",
+    "screenshots": [],
+    "dependencies": ["NotEnoughItems", "appliedenergistics2"]
+  }
+]

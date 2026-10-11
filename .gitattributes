@@ -1,0 +1,10 @@
+* text=auto
+.gitattributes text eol=lf
+.gitignore text eol=lf
+*.java text eol=lf
+*.py text eol=lf
+*.md text eol=lf
+*.json text eol=lf
+*.info text eol=lf
+# JAR manifests require a terminating blank line.
+*.mf text eol=lf whitespace=-blank-at-eof
