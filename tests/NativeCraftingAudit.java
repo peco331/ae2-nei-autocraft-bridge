@@ -187,12 +187,60 @@ public class NativeCraftingAudit {
         check(ServerCrafting.execute(request(1,stack(quartz,4),star),player).completed==0,"full player inventory stops without dropping crafted items");
         check(emptyMatrix()&&amount(star)==20,"failed full-inventory craft returns prefetched material without consumption");
         polishTests(star,quartz,diamond);
+        intermediateTests(star,quartz,emerald,diamond);
         turbineTest(star,diamond);
         benchmarkSnapshot(star);
     }
     void clearPlayer()throws Exception{Object inv=get(player,"field_71071_by","inventory");for(int i=0;i<36;i++)call(inv,"func_70299_a|setInventorySlotContents",i,null);}
     boolean emptyMatrix()throws Exception{Object matrix=call(container,"getInventoryByName","crafting");for(int i=0;i<9;i++)if(call(matrix,"func_70301_a|getStackInSlot",i)!=null)return false;return true;}
     int occupied(Object item)throws Exception{Object inv=get(player,"field_71071_by","inventory");int n=0;for(int i=0;i<36;i++){Object s=call(inv,"func_70301_a|getStackInSlot",i);if(s!=null&&call(s,"func_77973_b|getItem")==item)n++;}return n;}
+    public static class Goal { public final Object itemStack; public Goal(Object stack){itemStack=stack;} }
+    public static class Plan { public final List<Goal> initialItems=new ArrayList<Goal>(); public Plan(Object... stacks){for(Object s:stacks)initialItems.add(new Goal(s));} }
+    BridgeNetwork.Request intermediate(int count,Object result,Object... inputs)throws Exception{
+        BridgeNetwork.Request req=request(count,result,inputs);req.operation=2;return req;
+    }
+    void intermediateTests(Object star,Object quartz,Object emerald,Object diamond)throws Exception{
+        Object finalStack=stack(diamond,1), middle=stack(quartz,4);
+        check(AE2NEICraftingBridge.craftOperation(finalStack,new Plan(finalStack))==1
+            &&AE2NEICraftingBridge.craftOperation(middle,new Plan(finalStack))==2,"requested output retained; intermediate classified from initial goals");
+        check(AE2NEICraftingBridge.craftOperation(middle,new Plan(finalStack,middle))==1
+            &&AE2NEICraftingBridge.craftOperation(middle,new Plan())==1
+            &&AE2NEICraftingBridge.craftOperation(middle,null)==1,"multiple explicit goals and unknown goal lists preserve requested outputs");
+        Object variant=stack(quartz,3),tag=InventorySnapshot.tag();call(tag,"func_74778_a|setString","auditVariant","different");call(variant,"func_77982_d|setTagCompound",tag);
+        check(AE2NEICraftingBridge.craftOperation(middle,new Plan(variant))==2,"goal classification distinguishes exact NBT variants");
+        clearPlayer();call(list,"resetStatus");insertCapacity=Long.MAX_VALUE;put(star,10);
+        BridgeNetwork.Result a=ServerCrafting.execute(intermediate(1,middle,star),player);
+        check(a.completed==1&&playerAmount(quartz)==0&&amount(quartz)==4,"four intermediate outputs go to ME with exact native completion count");
+        BridgeNetwork.Result b=ServerCrafting.execute(intermediate(1,stack(emerald,2),quartz,quartz),player);
+        check(b.completed==1&&playerAmount(emerald)==0&&amount(emerald)==2&&amount(quartz)==2,"next stage consumes real ME intermediates and retains batch surplus in ME");
+        BridgeNetwork.Result c=ServerCrafting.execute(request(1,finalStack,emerald,emerald),player);
+        check(c.completed==1&&playerAmount(diamond)==1&&playerAmount(quartz)==0&&playerAmount(emerald)==0
+            &&amount(quartz)==2&&amount(emerald)==0&&amount(star)==9&&emptyMatrix(),"odd-sized chain leaves only final output in player; real surplus and exact raw consumption in ME");
+        clearPlayer();call(list,"resetStatus");put(star,10);
+        Object inv=get(player,"field_71071_by","inventory");call(inv,"func_70299_a|setInventorySlotContents",5,stack(quartz,7));call(inv,"func_70299_a|setInventorySlotContents",13,variant);
+        a=ServerCrafting.execute(intermediate(2,middle,star),player);
+        check(a.completed==2&&playerAmount(quartz)==10&&amount(quartz)==8&&call(inv,"func_70301_a|getStackInSlot",13)==variant,"routing transfers only new quantity; original items and NBT variants retained");
+        Object decoded=InventorySnapshot.decode(a.snapshot);
+        check(((Number)call(decoded,"getOrDefault",stack(quartz,1),0L)).longValue()==15,"authoritative snapshot counts deposited intermediate and original player quantity once");
+        clearPlayer();call(list,"resetStatus");put(star,10);insertCapacity=2;
+        a=ServerCrafting.execute(intermediate(2,middle,star),player);
+        check(a.completed==2&&amount(quartz)==2&&playerAmount(quartz)==6,"partial insertion preserves exactly six rejected new outputs in player");
+        clearPlayer();call(list,"resetStatus");put(star,10);insertCapacity=0;
+        a=ServerCrafting.execute(intermediate(1,middle,star),player);
+        check(a.completed==1&&amount(quartz)==0&&playerAmount(quartz)==4,"full ME retains every new intermediate in player without drops");
+        clearPlayer();call(list,"resetStatus");put(star,10);insertCapacity=Long.MAX_VALUE;injectAllowed=false;
+        a=ServerCrafting.execute(intermediate(1,middle,star),player);
+        check(a.completed==1&&amount(quartz)==0&&playerAmount(quartz)==4,"missing INJECT permission does not move intermediate outputs");injectAllowed=true;
+        powered=false;ServerCrafting.depositCraftedOutput(container,player,middle,4);
+        check(amount(quartz)==0&&playerAmount(quartz)==4,"unpowered network leaves all routed quantity in player");powered=true;
+        clearPlayer();call(list,"resetStatus");put(star,30);
+        ServerCrafting.Job job=new ServerCrafting.Job(intermediate(10,middle,star),player);
+        check(job.advance(4)==null&&amount(quartz)==16&&playerAmount(quartz)==0,"first intermediate slice deposits only four crafts");
+        check(job.advance(4)==null&&amount(quartz)==32,"deposited prior slice does not corrupt next native completion count");
+        a=job.advance(4);check(a.completed==10&&amount(quartz)==40&&playerAmount(quartz)==0&&emptyMatrix(),"sliced intermediate request reports ten crafts while keeping all output in ME");
+        job=new ServerCrafting.Job(intermediate(10,middle,star),player);job.advance(4);a=job.abort();
+        check(a.status==5&&a.completed==4&&amount(quartz)==56&&playerAmount(quartz)==0&&emptyMatrix(),"cancelled intermediate request retains all confirmed deposited outputs");
+    }
     void polishTests(Object star,Object quartz,Object diamond)throws Exception{
         clearPlayer();call(list,"resetStatus");insertCapacity=Long.MAX_VALUE;put(star,30);
         Object inv=get(player,"field_71071_by","inventory"), untouched=stack(diamond,2);
@@ -207,6 +255,12 @@ public class NativeCraftingAudit {
         check(((Number)get(call(inv,"func_70301_a|getStackInSlot",5),"field_77994_a","stackSize")).intValue()==64&&((Number)get(call(inv,"func_70301_a|getStackInSlot",12),"field_77994_a","stackSize")).intValue()==4&&call(inv,"func_70301_a|getStackInSlot",13)==variant,"max stack limit and NBT variants preserved");
         Object sword=item("field_151040_l");call(inv,"func_70299_a|setInventorySlotContents",7,stack(sword,1));call(inv,"func_70299_a|setInventorySlotContents",8,stack(sword,1));
         ServerCrafting.compactOutput(player,stack(sword,1));check(occupied(sword)==2,"unstackable tools remain separate");
+        clearPlayer();
+        for(int i=0;i<36;i++)call(inv,"func_70299_a|setInventorySlotContents",i,stack(diamond,64));
+        call(inv,"func_70299_a|setInventorySlotContents",0,stack(quartz,60));
+        result=ServerCrafting.execute(request(8,stack(quartz,4),star),player);
+        check(result.status==0&&result.completed==1&&playerAmount(quartz)==64&&emptyMatrix(),
+            "near-full player inventory accepts one complete craft instead of rejecting a four-craft batch");
         clearPlayer();
         ServerCrafting.Job job=new ServerCrafting.Job(request(10,stack(quartz,4),star),player);
         check(job.advance(4)==null&&playerAmount(quartz)==16&&ServerCrafting.cap(16)==16,"one tick slice makes at most four crafts and releases thread cap");
@@ -277,6 +331,22 @@ public class NativeCraftingAudit {
         check(queue.containsKey(player),"dedicated-server request routing uses authenticated sender");queue.remove(player);
         new BridgeNetwork.RequestHandler().onMessage(req,context);
         check(!queue.containsKey(player),"duplicate request IDs cannot craft twice");
+        clearPlayer();call(list,"resetStatus");Object star=item("field_151156_bN"),quartz=item("field_151128_bU");put(star,20);
+        req=request(10,stack(quartz,4),star);req.id=101;
+        new BridgeNetwork.RequestHandler().onMessage(req,context);
+        Object task=queue.get(player),job=get(task,"job");
+        check(call(job,"advance",4)==null&&playerAmount(quartz)==16,"network task executes its first native slice");
+        new BridgeNetwork.CancelHandler().onMessage(new BridgeNetwork.Cancel(101),context);
+        check(Boolean.TRUE.equals(get(task,"cancelled")),"cancel handler marks authenticated native task");
+        BridgeNetwork.Request next=new BridgeNetwork.Request(0,7,0,new byte[0],new byte[0]);next.id=102;
+        check(new BridgeNetwork.RequestHandler().onMessage(next,context)==null&&get(task,"next")!=null,
+            "new request queues behind cancellation instead of being silently lost");
+        new BridgeNetwork().serverTick(new TickEvent.ServerTickEvent(TickEvent.Phase.START));
+        check(playerAmount(quartz)==16&&emptyMatrix()&&queue.get(player)!=task,
+            "cancelled native task stops consuming on next tick and cleans before successor");
+        new BridgeNetwork().serverTick(new TickEvent.ServerTickEvent(TickEvent.Phase.START));
+        check(!queue.containsKey(player)&&playerAmount(quartz)==16,"successor snapshot completes and releases player queue");
+        clearPlayer();call(list,"resetStatus");
     }
     long matrixAmount(Object item)throws Exception{
         Object inv=call(container,"getInventoryByName","crafting");long amount=0;for(int i=0;i<9;i++){Object s=call(inv,"func_70301_a|getStackInSlot",i);if(s!=null&&call(s,"func_77973_b|getItem")==item)amount+=((Number)get(s,"field_77994_a","stackSize")).intValue();}return amount;

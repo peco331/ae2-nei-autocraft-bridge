@@ -37,7 +37,7 @@ public class Verify {
             pending.add(decoded);pending.add(decoded);
         }
         check(pending.future.isDone()&&Arrays.equals(pending.future.get().snapshot,payload),"reordered chunks and duplicates reconstruct once");
-        BridgeNetwork.Request req=new BridgeNetwork.Request(1,5,3,new byte[]{1,2,3},new byte[]{4});req.id=123;
+        BridgeNetwork.Request req=new BridgeNetwork.Request(2,5,3,new byte[]{1,2,3},new byte[]{4});req.id=123;
         ByteBuf b=Unpooled.buffer();req.toBytes(b);BridgeNetwork.Request dec=new BridgeNetwork.Request();dec.fromBytes(b);check(dec.id==123&&dec.window==5&&dec.amount==3&&Arrays.equals(req.recipe,dec.recipe),"request roundtrip");b.release();
         for(int size:new int[]{-1,30001,Integer.MAX_VALUE}){b=Unpooled.buffer();b.writeInt(size);boolean rejected=false;try{BridgeNetwork.readBytes(b,30000);}catch(IllegalArgumentException e){rejected=true;}finally{b.release();}check(rejected,"malformed lengths rejected");}
         AE2NEICraftingBridge.rememberSnapshot(payload);
@@ -52,7 +52,74 @@ public class Verify {
         try{System.setErr(new PrintStream(warnings,true,"UTF-8"));for(int i=0;i<20;i++)BridgeLog.warning("audit-spam","audit warning",null);}
         finally{System.setErr(prior);}
         check(new String(warnings.toByteArray(),StandardCharsets.UTF_8).split("audit warning",-1).length==2,"twenty repeated errors produce one warning within rate window");
+        boundedNbt(); cancellation(); capacity();
+        ae2nei.core.AE2NEIMod mod=new ae2nei.core.AE2NEIMod();
+        check(mod.compatible(Collections.singletonMap("ae2neiautocraftbridge","1.1.3"),cpw.mods.fml.relauncher.Side.SERVER),"matching new protocol accepted");
+        check(!mod.compatible(Collections.singletonMap("ae2neiautocraftbridge","1.1.2"),cpw.mods.fml.relauncher.Side.CLIENT),"old peer rejected after cancellation protocol change");
         System.out.println("PASS: "+assertions+" bytecode/protocol assertions. Native gameplay is checked separately.");
+    }
+    static byte[] gzip(byte[] raw)throws Exception {
+        ByteArrayOutputStream out=new ByteArrayOutputStream();
+        try(GZIPOutputStream zip=new GZIPOutputStream(out)){zip.write(raw);}return out.toByteArray();
+    }
+    static void reject(byte[] raw,int limit,String description)throws Exception {
+        boolean failed=false;try{BoundedNbt.unpack(gzip(raw),limit);}catch(IOException expected){failed=true;}
+        check(failed,description);
+    }
+    static byte[] byteArray(int declared,int actual)throws Exception {
+        ByteArrayOutputStream raw=new ByteArrayOutputStream();DataOutputStream d=new DataOutputStream(raw);
+        d.writeByte(10);d.writeUTF("");d.writeByte(7);d.writeUTF("x");d.writeInt(declared);d.write(new byte[actual]);d.writeByte(0);return raw.toByteArray();
+    }
+    static void boundedNbt()throws Exception {
+        byte[] good=byteArray(8,8);
+        check(Arrays.equals(good,BoundedNbt.unpack(gzip(good),good.length)),"bounded NBT accepts exact byte limit");
+        reject(good,good.length-1,"NBT rejects expanded bytes over limit");
+        reject(byteArray(3*1024*1024,3*1024*1024),BoundedNbt.STACK_BYTES,"small compressed bomb cannot bypass stack expansion limit");
+        reject(byteArray(Integer.MAX_VALUE,0),BoundedNbt.STACK_BYTES,"declared huge array rejected before Minecraft allocation");
+        reject(byteArray(-1,0),BoundedNbt.STACK_BYTES,"negative NBT array rejected");
+        reject(new byte[]{10,0,0,0,1},100,"trailing NBT bytes rejected");
+        ByteArrayOutputStream raw=new ByteArrayOutputStream();DataOutputStream d=new DataOutputStream(raw);
+        d.writeByte(10);d.writeUTF("");for(int i=0;i<33;i++){d.writeByte(10);d.writeUTF("x");}for(int i=0;i<34;i++)d.writeByte(0);
+        reject(raw.toByteArray(),1000,"deep NBT rejected before recursive native parse");
+        raw.reset();d.writeByte(10);d.writeUTF("");d.writeByte(9);d.writeUTF("x");d.writeByte(1);d.writeInt(Integer.MAX_VALUE);d.writeByte(0);
+        reject(raw.toByteArray(),1000,"declared huge NBT list rejected");
+    }
+    static void cancellation()throws Exception {
+        Object player=new Object(),other=new Object();
+        BridgeNetwork.Request first=new BridgeNetwork.Request(0,1,0,new byte[0],new byte[0]);first.id=1;
+        check(BridgeNetwork.enqueue(first,player)==0,"first request admitted");
+        java.lang.reflect.Field field=BridgeNetwork.class.getDeclaredField("SERVER");field.setAccessible(true);
+        Map<Object,BridgeNetwork.ServerTask> queue=(Map<Object,BridgeNetwork.ServerTask>)field.get(null);
+        BridgeNetwork.ServerTask current=queue.get(player);
+        BridgeNetwork.cancel(1,other);check(!current.cancelled,"cancel scoped to authenticated player");
+        BridgeNetwork.Request second=new BridgeNetwork.Request(0,1,0,new byte[0],new byte[0]);second.id=2;
+        check(BridgeNetwork.enqueue(second,player)==6,"busy request receives explicit rejection");
+        BridgeNetwork.cancel(1,player);check(current.cancelled,"accepted cancel marks active task");
+        check(BridgeNetwork.enqueue(second,player)==0&&queue.get(player)==current&&current.next!=null,"restart waits behind cancelled task cleanup");
+        check(BridgeNetwork.enqueue(first,player)==-1,"old IDs cannot restart inventory mutation");
+        BridgeNetwork.ServerTask successor=current.next;BridgeNetwork.retire(current);
+        check(queue.get(player)==successor,"cleanup promotes successor without losing it");
+        BridgeNetwork.retire(current);check(queue.get(player)==successor,"late retirement cannot remove successor");
+        BridgeNetwork.Cancel cancel=new BridgeNetwork.Cancel(2);ByteBuf bytes=Unpooled.buffer();cancel.toBytes(bytes);
+        BridgeNetwork.Cancel decoded=new BridgeNetwork.Cancel();decoded.fromBytes(bytes);check(decoded.id==2&&bytes.readableBytes()==0,"cancel protocol roundtrip");bytes.release();
+        BridgeNetwork.cancel(2,player);check(successor.cancelled,"queued successor can also be cancelled");BridgeNetwork.retire(successor);
+        check(!queue.containsKey(player),"cancelled queue completely released");
+    }
+    static void capacity()throws Exception {
+        FakeStack stack=new FakeStack(1,64);FakeAdaptor inventory=new FakeAdaptor(2);
+        check(ServerCrafting.fittingCrafts(inventory,stack,4)==2,"partial capacity reduces batch to two crafts");
+        check(stack.stackSize==1,"capacity probe never mutates expected output");
+        check(ServerCrafting.fittingCrafts(new FakeAdaptor(7),new FakeStack(4,64),4)==1,"capacity respects multi-item recipe output");
+        check(ServerCrafting.fittingCrafts(new FakeAdaptor(0),stack,4)==0,"full inventory performs no native craft");
+        check(ServerCrafting.fittingCrafts(new FakeAdaptor(4),new FakeStack(1,1),4)==1,"unstackable native single-craft cap retained");
+    }
+    public static class FakeStack {
+        public int stackSize;final int max;FakeStack(int count,int max){stackSize=count;this.max=max;}
+        public FakeStack copy(){return new FakeStack(stackSize,max);}public int getMaxStackSize(){return max;}
+    }
+    public static class FakeAdaptor {
+        final int room;FakeAdaptor(int room){this.room=room;}
+        public Object simulateAdd(FakeStack stack){return stack.stackSize<=room?null:stack;}
     }
     public static class Parent { private int value; }
     public static class Access extends Parent {

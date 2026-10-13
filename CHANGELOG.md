@@ -1,5 +1,17 @@
 # Changelog
 
+## 1.1.3 — Unreleased
+
+- Merge the local 1.1.2 intermediate-output routing: return newly crafted intermediates to ME where permitted, preserving existing player quantities and rejected leftovers.
+- Bound decompressed NBT bytes, tag depth/count and array/list lengths before native allocation; limit recipe alternatives.
+- Add authenticated request cancellation and a bounded successor queue. Clean up a cancelled task before starting its replacement; report busy requests explicitly.
+- Reduce native crafting batches to the available player-inventory capacity.
+- Require 1.1.3 on both ends because cancellation adds a network message.
+
+Validation: 48 lightweight assertions per dependency combination (three combinations), 58 isolated RC1 native assertions, and paired installer/rollback fixtures passed. Full client UI and large-network TPS acceptance remain unverified.
+
+合并 1.1.2 中间产物归还；修复 NBT 解码边界、取消任务后继续耗料及背包部分容量不足时整批被拒绝的问题。此版本尚未公开发行。
+
 ## 1.1.1 — 2026-10-12
 
 First public release: **GTNH NEI autocrafting in AE2 Crafting Terminals**.

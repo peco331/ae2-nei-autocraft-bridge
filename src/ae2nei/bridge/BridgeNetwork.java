@@ -39,6 +39,7 @@ public final class BridgeNetwork {
         channel = NetworkRegistry.INSTANCE.newSimpleChannel("ae2neibridge");
         channel.registerMessage(RequestHandler.class, Request.class, 0, Side.SERVER);
         channel.registerMessage(ReplyHandler.class, Reply.class, 1, Side.CLIENT);
+        channel.registerMessage(CancelHandler.class, Cancel.class, 2, Side.SERVER);
         FMLCommonHandler.instance().bus().register(new BridgeNetwork());
     }
 
@@ -83,6 +84,13 @@ public final class BridgeNetwork {
             if (parts < 1 || parts > (MAX_BYTES + CHUNK - 1) / CHUNK || part < 0 || part >= parts || completed < 0 || completed > 64)
                 throw new IllegalArgumentException("Invalid reply metadata");
         }
+    }
+    public static final class Cancel implements IMessage {
+        public long id;
+        public Cancel() {}
+        public Cancel(long id) { this.id = id; }
+        public void toBytes(ByteBuf b) { b.writeLong(id); }
+        public void fromBytes(ByteBuf b) { id = b.readLong(); }
     }
     static void writeBytes(ByteBuf b, byte[] bytes) { b.writeInt(bytes.length); b.writeBytes(bytes); }
     static byte[] readBytes(ByteBuf b, int limit) {
@@ -134,19 +142,67 @@ public final class BridgeNetwork {
             }
             BridgeLog.warning("timeout", "Request timed out or cancelled; no automatic retry (id=" + id + ")", null);
             return null;
-        } finally { PENDING.remove(id); }
+        } finally {
+            // Enqueue before releasing the client slot: a restarted worker sends after this cancel.
+            if (!pending.future.isDone()) CLIENT.add(new Runnable() {
+                public void run() {
+                    try { channel.sendToServer(new Cancel(id)); }
+                    catch (Exception e) { AE2NEICraftingBridge.report("cancel send", e); }
+                }
+            });
+            PENDING.remove(id);
+        }
+    }
+    static Object sender(MessageContext context) throws Exception {
+        Object handler = Reflect.get(context, "netHandler");
+        return Reflect.get(handler, "field_147369_b", "playerEntity");
+    }
+    /** Admission and cancellation only manipulate queue metadata, never game inventories. */
+    static int enqueue(Request request, Object player) {
+        synchronized (SERVER) {
+            Long last = LAST.get(player);
+            if (request.id <= 0 || (last != null && request.id <= last)) return -1;
+            ServerTask current = SERVER.get(player);
+            if (current != null) {
+                if (!current.cancelled || (current.next != null && !current.next.cancelled)) return 6;
+                current.next = new ServerTask(request, player);
+            } else {
+                if (SERVER.size() >= 32) return 6;
+                SERVER.put(player, new ServerTask(request, player));
+            }
+            LAST.put(player, request.id);
+            return 0;
+        }
+    }
+    static void cancel(long id, Object player) {
+        synchronized (SERVER) {
+            ServerTask current = SERVER.get(player);
+            if (current == null) return;
+            if (current.req.id == id) current.cancelled = true;
+            else if (current.next != null && current.next.req.id == id) current.next.cancelled = true;
+        }
+    }
+    static void retire(ServerTask task) {
+        synchronized (SERVER) {
+            if (SERVER.get(task.player) == task) {
+                SERVER.remove(task.player);
+                if (task.next != null) SERVER.put(task.player, task.next);
+            }
+        }
+    }
+    public static final class CancelHandler implements IMessageHandler<Cancel, IMessage> {
+        public IMessage onMessage(Cancel message, MessageContext context) {
+            try { cancel(message.id, sender(context)); }
+            catch (Exception e) { AE2NEICraftingBridge.report("cancel", e); }
+            return null;
+        }
     }
     public static final class RequestHandler implements IMessageHandler<Request, IMessage> {
         public IMessage onMessage(Request request, MessageContext context) {
             try {
                 // Reflecting MessageContext's methods also resolves its client-only return types on a dedicated server.
-                Object handler = Reflect.get(context, "netHandler");
-                Object player = Reflect.get(handler, "field_147369_b", "playerEntity");
-                synchronized (SERVER) {
-                    Long last = LAST.get(player);
-                    if (request.id <= 0 || (last != null && request.id <= last) || SERVER.containsKey(player) || SERVER.size() >= 32) return null;
-                    LAST.put(player, request.id); SERVER.put(player, new ServerTask(request, player));
-                }
+                int admitted = enqueue(request, sender(context));
+                if (admitted == 6) return new Reply(request.id, new Result(6, 0, new byte[0]), 0, 1, new byte[0]);
             } catch (Exception e) { AE2NEICraftingBridge.report("receive", e); }
             return null;
         }
@@ -161,11 +217,13 @@ public final class BridgeNetwork {
     static final class ServerTask {
         final Request req; final Object player; final long created = System.nanoTime();
         final ServerCrafting.Job job;
+        volatile boolean cancelled;
+        ServerTask next; // guarded by SERVER
         ServerTask(Request req, Object player) { this.req = req; this.player = player; job = new ServerCrafting.Job(req, player); }
         void run() {
-            Result result = System.nanoTime() - created >= TIMEOUT ? job.abort() : job.advance(4);
+            Result result = cancelled || System.nanoTime() - created >= TIMEOUT ? job.abort() : job.advance(4);
             if (result == null) return;
-            synchronized (SERVER) { if (SERVER.get(player) == this) SERVER.remove(player); }
+            retire(this);
             if (BridgeLog.DEBUG)
                 System.out.println("[AE2-NEI-Bridge] Request " + req.id + ": requested=" + req.amount + ", completed=" + result.completed + ", status=" + result.status);
             else if (result.status != 0) BridgeLog.warning("status-" + result.status, "Request ended with status=" + result.status + ", completed=" + result.completed, null);

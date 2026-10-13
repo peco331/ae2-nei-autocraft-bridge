@@ -8,7 +8,8 @@ public final class AE2NEICraftingBridge {
     private AE2NEICraftingBridge() {}
     private static final ThreadLocal<Boolean> HALTED = new ThreadLocal<Boolean>();
     private static final ThreadLocal<byte[]> SNAPSHOT = new ThreadLocal<byte[]>();
-    public static void beginProcessing() { HALTED.remove(); SNAPSHOT.remove(); }
+    private static final ThreadLocal<Object> PLAN = new ThreadLocal<Object>();
+    public static void beginProcessing() { HALTED.remove(); SNAPSHOT.remove(); PLAN.remove(); }
     static byte[] takeSnapshot() { byte[] bytes = SNAPSHOT.get(); SNAPSHOT.remove(); return bytes; }
     static void rememberSnapshot(byte[] bytes) { SNAPSHOT.set(bytes); }
     public static boolean isCraftingTerm(Object gui) {
@@ -73,6 +74,12 @@ public final class AE2NEICraftingBridge {
         }
         if (!worker() || amount <= 0 || !canCraft(ref, gui)) return false;
         try {
+            Object observedPlan = PLAN.get();
+            if (observedPlan == null) {
+                observedPlan = Reflect.get(Class.forName("codechicken.nei.recipe.AutoCraftingManager"), "math");
+                PLAN.set(observedPlan);
+            }
+            final Object plan = observedPlan;
             BridgeNetwork.Result result = BridgeNetwork.request(gui, new Callable<BridgeNetwork.Request>() {
                 public BridgeNetwork.Request call() throws Exception {
                     Object handler = Reflect.get(ref, "handler");
@@ -84,7 +91,7 @@ public final class AE2NEICraftingBridge {
                     if (stack == null) return null;
                     Object nbt = Reflect.call(Class.forName("appeng.integration.modules.NEIHelpers.NEICraftingHandler"),
                         "packIngredients", gui, ingredients, true);
-                    return new BridgeNetwork.Request(1, window(gui), Math.min(64, amount),
+                    return new BridgeNetwork.Request(craftOperation(stack, plan), window(gui), Math.min(64, amount),
                         InventorySnapshot.compress(nbt), InventorySnapshot.writeStack(stack));
                 }
             });
@@ -92,6 +99,16 @@ public final class AE2NEICraftingBridge {
             rememberSnapshot(result.snapshot);
             return result.completed > 0;
         } catch (Exception e) { HALTED.set(true); report("craft", e); return false; }
+    }
+    /** NEI initialItems are the user's goals; every other output is an intermediate. */
+    public static int craftOperation(Object stack, Object plan) throws Exception {
+        if (plan == null) return 1;
+        List<?> goals = (List<?>) Reflect.get(plan, "initialItems");
+        if (goals.isEmpty()) return 1; // An unknown/empty goal list must never relocate an output.
+        for (Object goal : goals) {
+            if (ServerCrafting.same(stack, Reflect.get(goal, "itemStack"))) return 1;
+        }
+        return 2;
     }
     static int window(Object gui) throws Exception {
         return ((Number) Reflect.get(Reflect.get(gui, "field_147002_h", "inventorySlots"), "field_75152_c", "windowId")).intValue();

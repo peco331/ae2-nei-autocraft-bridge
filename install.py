@@ -73,7 +73,7 @@ def main():
     SERVER,CLIENT,BACKUPS=args.server_root,args.client_root,args.backup_root
     if args.rollback and args.existing_jar_backup:parser.error('Existing JAR backup is only supported for upgrades')
     old={str(base):sorted((base/'mods').glob('ae2-nei-autocraft-bridge-*.jar')) for base in [CLIENT,SERVER]}
-    print('Action:', 'rollback' if args.rollback else 'paired upgrade to 1.1.1')
+    print('Action:', 'rollback' if args.rollback else 'paired upgrade to '+VERSION)
     print('Targets:',CLIENT,SERVER,sep='\n')
     for base,jars in old.items():print('Existing bridge JARs:',base,', '.join(p.name for p in jars) or '(none)')
     if not args.execute:

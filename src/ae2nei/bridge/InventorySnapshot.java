@@ -2,6 +2,7 @@ package ae2nei.bridge;
 
 import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
+import java.io.DataInputStream;
 import java.util.List;
 
 /** A server inventory observation, never a prediction or a local mutation. */
@@ -16,8 +17,21 @@ public final class InventorySnapshot {
         return bytes;
     }
     public static Object expand(byte[] bytes) throws Exception {
-        if (bytes.length == 0 || bytes.length > BridgeNetwork.MAX_BYTES) throw new IllegalArgumentException("Invalid NBT size");
-        return Reflect.call(Class.forName("net.minecraft.nbt.CompressedStreamTools"), "func_74796_a|readCompressed", new ByteArrayInputStream(bytes));
+        return expand(bytes, BoundedNbt.SNAPSHOT_BYTES);
+    }
+    public static Object expand(byte[] bytes, int limit) throws Exception {
+        byte[] raw = BoundedNbt.unpack(bytes, limit);
+        Object tracker = Class.forName("net.minecraft.nbt.NBTSizeTracker").getConstructor(long.class).newInstance((long) limit * 4);
+        return Reflect.call(Class.forName("net.minecraft.nbt.CompressedStreamTools"), "func_152456_a|read",
+            new DataInputStream(new ByteArrayInputStream(raw)), tracker);
+    }
+    static void validateRecipe(byte[] bytes) throws Exception {
+        Object recipe = expand(bytes, BoundedNbt.RECIPE_BYTES);
+        for (int i = 0; i < 9; i++) {
+            Object variants = Reflect.call(recipe, "func_150295_c|getTagList", "#" + i, 10);
+            if (((Number) Reflect.call(variants, "func_74745_c|tagCount")).intValue() > 256)
+                throw new IllegalArgumentException("Too many ingredient alternatives");
+        }
     }
     public static byte[] writeStack(Object stack) throws Exception {
         return compress(Reflect.call(stack, "func_77955_b|writeToNBT", tag()));
