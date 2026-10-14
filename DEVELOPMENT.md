@@ -17,7 +17,7 @@ An ignored `.local-paths.json` may supply `server_root`, `client_mods`, `librari
 ## Checks
 
 ```powershell
-py -3 -B tests/verify.py --bridge "dist/release-1.1.3/ae2-nei-autocraft-bridge-1.1.3.jar" --nei "path/to/NotEnoughItems.jar" --ae2 "path/to/appliedenergistics2.jar"
+py -3 -B tests/verify.py --bridge "dist/release-1.1.4/ae2-nei-autocraft-bridge-1.1.4.jar" --nei "path/to/NotEnoughItems.jar" --ae2 "path/to/appliedenergistics2.jar"
 ```
 
 Set the same path environment variables as above. This is a small JVM check of the three transformed classes, bounded protocol/NBT decoding, cancellation and successor queue handling, inventory capacity, snapshot consumption, reflection caching and log throttling. It does not launch Minecraft.
@@ -43,3 +43,9 @@ Compressed messages retain the 30,000-byte recipe and 4,096-byte expected-output
 Cancellation is scoped to the authenticated sender and request ID. A replacement waits behind the cancelled request's cleanup; at most one successor is retained per player. Native calls already in progress complete before cancellation takes effect. Wire-compatible peers must both report 1.1.3.
 
 The 1.1.3 candidate passed 48 bytecode/protocol checks for each of local RC1, official AE2 1078/NEI 145, and official AE2 1082/NEI 159. It also passed 58 isolated RC1 native assertions, including intermediate routing, cancellation followed by a replacement request, limited inventory space, output stacking, and matrix cleanup. The paired installer/rollback fixture passed. Full client UI and large-network TPS acceptance remain unverified.
+
+## 1.1.4 routing regression
+
+`RecipeChainMath.initialItems` contains ordinary bookmarks. Recipe goals become ingredients of the synthetic master root after `createMasterRoot()`. The bridge recognizes both kinds of requested targets; unknown plans preserve outputs in the player inventory. The native routing fixture constructs real NEI bookmark items and calls `RecipeChainMath.of()` and `createMasterRoot()` before choosing the server operation, including an unrelated ordinary bookmark that reproduced the regression.
+
+The 1.1.4 candidate passed 52 lightweight assertions on each of the three dependency combinations above and 60 isolated native assertions. Network execution, cancellation, snapshots and ASM hooks retain the 1.1.3 implementation. The bridge adds no custom progress UI or input handlers; NEI retains its existing interaction. Actual client feedback and large-network TPS remain pending gameplay acceptance.

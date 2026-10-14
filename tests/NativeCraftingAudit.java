@@ -194,26 +194,44 @@ public class NativeCraftingAudit {
     void clearPlayer()throws Exception{Object inv=get(player,"field_71071_by","inventory");for(int i=0;i<36;i++)call(inv,"func_70299_a|setInventorySlotContents",i,null);}
     boolean emptyMatrix()throws Exception{Object matrix=call(container,"getInventoryByName","crafting");for(int i=0;i<9;i++)if(call(matrix,"func_70301_a|getStackInSlot",i)!=null)return false;return true;}
     int occupied(Object item)throws Exception{Object inv=get(player,"field_71071_by","inventory");int n=0;for(int i=0;i<36;i++){Object s=call(inv,"func_70301_a|getStackInSlot",i);if(s!=null&&call(s,"func_77973_b|getItem")==item)n++;}return n;}
-    public static class Goal { public final Object itemStack; public Goal(Object stack){itemStack=stack;} }
-    public static class Plan { public final List<Goal> initialItems=new ArrayList<Goal>(); public Plan(Object... stacks){for(Object s:stacks)initialItems.add(new Goal(s));} }
+    Object plan(Object... outputs)throws Exception {
+        List<Object> bookmarks=new ArrayList<Object>();
+        Class<?> bookmark=cls("codechicken.nei.bookmark.BookmarkItem");
+        if(outputs.length>0) bookmarks.add(call(call(bookmark,"builder",-1,stack(item("field_151156_bN"),1)),"build"));
+        for(Object output:outputs){
+            Object id=call(cls("codechicken.nei.recipe.Recipe$RecipeId"),"of",output,"ae2nei-routing-audit",Collections.emptyList());
+            Object builder=call(bookmark,"builder",-1,output);
+            call(builder,"recipeId",id);call(builder,"type",Enum.valueOf((Class)cls("codechicken.nei.bookmark.BookmarkItem$BookmarkItemType"),"RESULT"));
+            call(builder,"factor",(long)((Number)get(output,"field_77994_a","stackSize")).intValue());call(builder,"multiplier",1L);
+            bookmarks.add(call(builder,"build"));
+        }
+        Object math=call(cls("codechicken.nei.recipe.chain.RecipeChainMath"),"of",bookmarks,Collections.emptySet());
+        call(math,"createMasterRoot");return math;
+    }
     BridgeNetwork.Request intermediate(int count,Object result,Object... inputs)throws Exception{
         BridgeNetwork.Request req=request(count,result,inputs);req.operation=2;return req;
     }
     void intermediateTests(Object star,Object quartz,Object emerald,Object diamond)throws Exception{
         Object finalStack=stack(diamond,1), middle=stack(quartz,4);
-        check(AE2NEICraftingBridge.craftOperation(finalStack,new Plan(finalStack))==1
-            &&AE2NEICraftingBridge.craftOperation(middle,new Plan(finalStack))==2,"requested output retained; intermediate classified from initial goals");
-        check(AE2NEICraftingBridge.craftOperation(middle,new Plan(finalStack,middle))==1
-            &&AE2NEICraftingBridge.craftOperation(middle,new Plan())==1
+        Object realPlan=plan(finalStack);
+        check(((List<?>)get(realPlan,"initialItems")).size()==1
+            &&!call(cls("appeng.util.Platform"),"isSameItemPrecise",get(((List<?>)get(realPlan,"initialItems")).get(0),"itemStack"),finalStack).equals(true),
+            "real NEI initialItems contain unrelated ordinary bookmark, not requested recipe output");
+        check(AE2NEICraftingBridge.craftOperation(finalStack,realPlan)==1
+            &&AE2NEICraftingBridge.craftOperation(middle,realPlan)==2,"real master-root output retained; intermediate goes to ME");
+        check(AE2NEICraftingBridge.craftOperation(middle,plan(finalStack,middle))==1
+            &&AE2NEICraftingBridge.craftOperation(middle,plan())==1
             &&AE2NEICraftingBridge.craftOperation(middle,null)==1,"multiple explicit goals and unknown goal lists preserve requested outputs");
         Object variant=stack(quartz,3),tag=InventorySnapshot.tag();call(tag,"func_74778_a|setString","auditVariant","different");call(variant,"func_77982_d|setTagCompound",tag);
-        check(AE2NEICraftingBridge.craftOperation(middle,new Plan(variant))==2,"goal classification distinguishes exact NBT variants");
+        check(AE2NEICraftingBridge.craftOperation(middle,plan(variant))==2,"goal classification distinguishes exact NBT variants");
         clearPlayer();call(list,"resetStatus");insertCapacity=Long.MAX_VALUE;put(star,10);
         BridgeNetwork.Result a=ServerCrafting.execute(intermediate(1,middle,star),player);
         check(a.completed==1&&playerAmount(quartz)==0&&amount(quartz)==4,"four intermediate outputs go to ME with exact native completion count");
         BridgeNetwork.Result b=ServerCrafting.execute(intermediate(1,stack(emerald,2),quartz,quartz),player);
         check(b.completed==1&&playerAmount(emerald)==0&&amount(emerald)==2&&amount(quartz)==2,"next stage consumes real ME intermediates and retains batch surplus in ME");
-        BridgeNetwork.Result c=ServerCrafting.execute(request(1,finalStack,emerald,emerald),player);
+        BridgeNetwork.Request finalRequest=request(1,finalStack,emerald,emerald);
+        finalRequest.operation=AE2NEICraftingBridge.craftOperation(finalStack,realPlan);
+        BridgeNetwork.Result c=ServerCrafting.execute(finalRequest,player);
         check(c.completed==1&&playerAmount(diamond)==1&&playerAmount(quartz)==0&&playerAmount(emerald)==0
             &&amount(quartz)==2&&amount(emerald)==0&&amount(star)==9&&emptyMatrix(),"odd-sized chain leaves only final output in player; real surplus and exact raw consumption in ME");
         clearPlayer();call(list,"resetStatus");put(star,10);
@@ -303,13 +321,18 @@ public class NativeCraftingAudit {
         clearPlayer();call(list,"resetStatus");put(star,10);put(diamond,10);
         Object registered=get(cls("gregtech.api.enums.ItemList"),"Generator_Steam_Turbine_LV");
         Object turbine=call(registered,"get",1L,new Object[0]);
+        Object goal=plan(turbine);
+        check(AE2NEICraftingBridge.craftOperation(turbine,goal)==1,
+            "actual GT basic steam turbine recognized as real NEI master-root target despite unrelated ordinary bookmark");
         // A unique input pair avoids the native recipe cache from the earlier star->quartz test.
         recipe(turbine,new Object[]{star,diamond});
         Object inv=get(player,"field_71071_by","inventory");
         call(inv,"func_70299_a|setInventorySlotContents",0,stack(diamond,1));
-        BridgeNetwork.Result first=ServerCrafting.execute(request(1,turbine,star,diamond),player);
+        BridgeNetwork.Request firstRequest=request(1,turbine,star,diamond);firstRequest.operation=AE2NEICraftingBridge.craftOperation(turbine,goal);
+        BridgeNetwork.Result first=ServerCrafting.execute(firstRequest,player);
         call(inv,"func_70299_a|setInventorySlotContents",0,null);
-        BridgeNetwork.Result second=ServerCrafting.execute(request(1,turbine,star,diamond),player);
+        BridgeNetwork.Request secondRequest=request(1,turbine,star,diamond);secondRequest.operation=AE2NEICraftingBridge.craftOperation(turbine,goal);
+        BridgeNetwork.Result second=ServerCrafting.execute(secondRequest,player);
         Object merged=call(inv,"func_70301_a|getStackInSlot",0);
         evidence.append("TURBINE firstStatus=").append(first.status).append(" firstCount=").append(first.completed).append(" secondStatus=").append(second.status)
             .append(" secondCount=").append(second.completed).append(" maxStack=").append(call(turbine,"func_77976_d|getMaxStackSize"))

@@ -100,13 +100,30 @@ public final class AE2NEICraftingBridge {
             return result.completed > 0;
         } catch (Exception e) { HALTED.set(true); report("craft", e); return false; }
     }
-    /** NEI initialItems are the user's goals; every other output is an intermediate. */
+    /** Recipe outputs live in master-root ingredients; initialItems are ordinary bookmarks. */
+    public static List<Object> goalStacks(Object plan) {
+        java.util.ArrayList<Object> goals = new java.util.ArrayList<Object>();
+        if (plan == null) return goals;
+        try {
+            for (Object goal : (List<?>) Reflect.get(plan, "initialItems"))
+                goals.add(Reflect.get(goal, "itemStack"));
+            if (!Boolean.TRUE.equals(Reflect.call(plan, "hasMasterRoot"))) return java.util.Collections.emptyList();
+            Object root = Reflect.get(plan.getClass(), "ROOT_RECIPE_ID");
+            for (Object goal : (List<?>) Reflect.get(plan, "recipeIngredients")) {
+                if (root != null && root.equals(Reflect.get(goal, "recipeId")))
+                    goals.add(Reflect.get(goal, "itemStack"));
+            }
+            return goals;
+        } catch (Exception e) {
+            report("goal classification", e);
+            return java.util.Collections.emptyList(); // Unknown plans must not relocate outputs.
+        }
+    }
     public static int craftOperation(Object stack, Object plan) throws Exception {
-        if (plan == null) return 1;
-        List<?> goals = (List<?>) Reflect.get(plan, "initialItems");
+        List<Object> goals = goalStacks(plan);
         if (goals.isEmpty()) return 1; // An unknown/empty goal list must never relocate an output.
         for (Object goal : goals) {
-            if (ServerCrafting.same(stack, Reflect.get(goal, "itemStack"))) return 1;
+            if (ServerCrafting.same(stack, goal)) return 1;
         }
         return 2;
     }

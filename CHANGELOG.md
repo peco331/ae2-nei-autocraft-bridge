@@ -1,5 +1,16 @@
 # Changelog
 
+## 1.1.4 — Unreleased
+
+- Fix final recipe outputs being deposited into ME storage. Read target recipe outputs from NEI master-root ingredients instead of treating ordinary `initialItems` bookmarks as the complete goal list.
+- Retain all 1.1.3 fixes and NEI's existing interaction; no additional overlay, buttons or progress packets.
+- Replace the routing integration fixture with actual `RecipeChainMath`, including unrelated ordinary bookmarks, multiple goals, NBT variants and the basic steam turbine output.
+- Require matching 1.1.4 bridge versions on both ends.
+
+Validation: 52 lightweight assertions per dependency combination (three combinations) and 60 isolated RC1 native assertions passed. Full client UI and large-network TPS acceptance remain unverified.
+
+修复 1.1.2/1.1.3 把最终产物误送入 ME 的回归，保留 1.1.3 的安全、取消及容量修复，沿用 NEI 原有界面和操作。此版本尚未公开发行。
+
 ## 1.1.3 — Unreleased
 
 - Merge the local 1.1.2 intermediate-output routing: return newly crafted intermediates to ME where permitted, preserving existing player quantities and rejected leftovers.

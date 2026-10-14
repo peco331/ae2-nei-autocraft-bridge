@@ -52,10 +52,10 @@ public class Verify {
         try{System.setErr(new PrintStream(warnings,true,"UTF-8"));for(int i=0;i<20;i++)BridgeLog.warning("audit-spam","audit warning",null);}
         finally{System.setErr(prior);}
         check(new String(warnings.toByteArray(),StandardCharsets.UTF_8).split("audit warning",-1).length==2,"twenty repeated errors produce one warning within rate window");
-        boundedNbt(); cancellation(); capacity();
+        boundedNbt(); cancellation(); capacity(); goals();
         ae2nei.core.AE2NEIMod mod=new ae2nei.core.AE2NEIMod();
-        check(mod.compatible(Collections.singletonMap("ae2neiautocraftbridge","1.1.3"),cpw.mods.fml.relauncher.Side.SERVER),"matching new protocol accepted");
-        check(!mod.compatible(Collections.singletonMap("ae2neiautocraftbridge","1.1.2"),cpw.mods.fml.relauncher.Side.CLIENT),"old peer rejected after cancellation protocol change");
+        check(mod.compatible(Collections.singletonMap("ae2neiautocraftbridge","1.1.4"),cpw.mods.fml.relauncher.Side.SERVER),"matching new protocol accepted");
+        check(!mod.compatible(Collections.singletonMap("ae2neiautocraftbridge","1.1.3"),cpw.mods.fml.relauncher.Side.CLIENT),"older bridge peer rejected by version handshake");
         System.out.println("PASS: "+assertions+" bytecode/protocol assertions. Native gameplay is checked separately.");
     }
     static byte[] gzip(byte[] raw)throws Exception {
@@ -112,6 +112,26 @@ public class Verify {
         check(ServerCrafting.fittingCrafts(new FakeAdaptor(7),new FakeStack(4,64),4)==1,"capacity respects multi-item recipe output");
         check(ServerCrafting.fittingCrafts(new FakeAdaptor(0),stack,4)==0,"full inventory performs no native craft");
         check(ServerCrafting.fittingCrafts(new FakeAdaptor(4),new FakeStack(1,1),4)==1,"unstackable native single-craft cap retained");
+    }
+    public static class Goal {
+        public final Object itemStack,recipeId;
+        Goal(Object item,Object id){itemStack=item;recipeId=id;}
+    }
+    public static class RootPlan {
+        private static final Object ROOT_RECIPE_ID=new Object();
+        public final List<Goal> initialItems=new ArrayList<Goal>(),recipeIngredients=new ArrayList<Goal>();
+        public boolean hasMasterRoot(){return true;}
+    }
+    static void goals()throws Exception {
+        RootPlan plan=new RootPlan();plan.initialItems.add(new Goal("ordinary",null));
+        plan.recipeIngredients.add(new Goal("target",RootPlan.ROOT_RECIPE_ID));
+        plan.recipeIngredients.add(new Goal("intermediate",new Object()));
+        List<Object> outputs=AE2NEICraftingBridge.goalStacks(plan);
+        check(outputs.contains("target"),"master-root target recognized when initialItems only contains unrelated bookmark");
+        check(outputs.contains("ordinary")&&!outputs.contains("intermediate"),"ordinary goal retained while non-root ingredient excluded");
+        plan.recipeIngredients.add(new Goal("second target",RootPlan.ROOT_RECIPE_ID));
+        check(AE2NEICraftingBridge.goalStacks(plan).contains("second target"),"multiple master-root outputs all retained");
+        check(AE2NEICraftingBridge.goalStacks(null).isEmpty(),"unknown goal list cannot authorize output relocation");
     }
     public static class FakeStack {
         public int stackSize;final int max;FakeStack(int count,int max){stackSize=count;this.max=max;}
