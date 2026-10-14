@@ -83,6 +83,9 @@ if os.path.exists(mcmod_file):
 
 for notice in ['LICENSE', 'THIRD_PARTY.md']:
     shutil.copy(Path(PROJECT_DIR) / notice, build_classes)
+assets = Path(PROJECT_DIR) / 'resources' / 'assets'
+if assets.is_dir():
+    shutil.copytree(assets, Path(build_classes) / 'assets')
 output_jar = os.path.join(dist_dir, "ae2-nei-autocraft-bridge-" + version + ".jar")
 manifest_file = os.path.join(PROJECT_DIR, "manifest.mf")
 

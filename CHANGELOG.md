@@ -1,5 +1,16 @@
 # Changelog
 
+## 1.1.5 — Unreleased
+
+- Add one localized chat notice per NEI chain when a bookmarked recipe cannot run in the crafting terminal. Name the material and recipe type so machine ingredients can be prepared beforehand; preserve bookmarks and existing controls.
+- Keep final-output classification limited to master-root ingredients. NEI replaces `initialItems` with inventory during iteration, which must not turn existing intermediates into requested final outputs.
+- Add a regression using the real NEI iterator's inventory refresh and an explicit JAR/fixture selection option for isolated version comparisons.
+- Require matching 1.1.5 bridge versions on both ends.
+
+Validation: 55 lightweight assertions passed for each of three dependency combinations, plus 61 isolated RC1 native assertions. Client UI and large-network TPS acceptance remain pending.
+
+合成链需要执行机器等不受终端支持的收藏配方时，聊天栏提示材料和配方类型，同一轮只提示一次。保留机器配方收藏；修正库存刷新后的中间产物分类。此版本尚未公开发行。
+
 ## 1.1.4 — Unreleased
 
 - Fix final recipe outputs being deposited into ME storage. Read target recipe outputs from NEI master-root ingredients instead of treating ordinary `initialItems` bookmarks as the complete goal list.

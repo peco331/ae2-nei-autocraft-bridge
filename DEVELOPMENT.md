@@ -1,6 +1,6 @@
 # Development
 
-The release JAR contains only `src/ae2nei/` classes, the coremod manifest, mod metadata and license notices. Runtime dependencies and test fixtures are not bundled.
+The release JAR contains only `src/ae2nei/` classes, localized assets, the coremod manifest, mod metadata and license notices. Runtime dependencies and test fixtures are not bundled.
 
 ## Build
 
@@ -17,7 +17,7 @@ An ignored `.local-paths.json` may supply `server_root`, `client_mods`, `librari
 ## Checks
 
 ```powershell
-py -3 -B tests/verify.py --bridge "dist/release-1.1.4/ae2-nei-autocraft-bridge-1.1.4.jar" --nei "path/to/NotEnoughItems.jar" --ae2 "path/to/appliedenergistics2.jar"
+py -3 -B tests/verify.py --bridge "dist/release-1.1.5/ae2-nei-autocraft-bridge-1.1.5.jar" --nei "path/to/NotEnoughItems.jar" --ae2 "path/to/appliedenergistics2.jar"
 ```
 
 Set the same path environment variables as above. This is a small JVM check of the three transformed classes, bounded protocol/NBT decoding, cancellation and successor queue handling, inventory capacity, snapshot consumption, reflection caching and log throttling. It does not launch Minecraft.
@@ -25,6 +25,8 @@ Set the same path environment variables as above. This is a small JVM check of t
 The 1.1.1 baseline previously passed 36 isolated RC1 checks using actual AE2 containers and native crafting with a controlled ME monitor. The original two-turbine output stacking and empty-grid case passed. These checks are server fixtures, not a full client UI acceptance test. The 1.1.1 public package was rebuilt from the same Java sources with updated author/license metadata; official AE2 1078/1082 and NEI 145/159 hooks were checked separately before that release.
 
 `tests/isolated.py` is a machine-local integration harness, using an independent world and loopback address. It refuses to run while the production game is active and limits its own JVM to two logical CPUs. Configure its local pack paths before use; it needs the previous 1.1.0 JAR for a historical snapshot comparison. Never clean through the shared `libraries` junction. Do not start a complete RC1 test server or whole-mod decompilation alongside a running game.
+
+Optional `--bridge` and `--harness-source` arguments select an explicit JAR and native fixture for version comparisons. The run record retains the selected JAR hash and source path locally.
 
 `install.py` is an optional offline paired installation/rollback utility, configured through explicit paths. Historical deployment/evidence scripts are retained locally and excluded from published source. Install downloaded releases manually as described in README.
 
@@ -46,6 +48,12 @@ The 1.1.3 candidate passed 48 bytecode/protocol checks for each of local RC1, of
 
 ## 1.1.4 routing regression
 
-`RecipeChainMath.initialItems` contains ordinary bookmarks. Recipe goals become ingredients of the synthetic master root after `createMasterRoot()`. The bridge recognizes both kinds of requested targets; unknown plans preserve outputs in the player inventory. The native routing fixture constructs real NEI bookmark items and calls `RecipeChainMath.of()` and `createMasterRoot()` before choosing the server operation, including an unrelated ordinary bookmark that reproduced the regression.
+Recipe goals become ingredients of the synthetic master root after `createMasterRoot()`. `RecipeChainMath.initialItems` initially contains ordinary bookmarks, but `RecipeChainIterator.next()` replaces it with initial items and current inventory. Since 1.1.5, only master-root ingredients authorize final-output classification; unknown plans preserve outputs in the player inventory. The native routing fixture constructs real NEI bookmark items and calls `RecipeChainMath.of()` and `createMasterRoot()` before choosing the server operation, including an unrelated ordinary bookmark that reproduced the regression.
 
 The 1.1.4 candidate passed 52 lightweight assertions on each of the three dependency combinations above and 60 isolated native assertions. Network execution, cancellation, snapshots and ASM hooks retain the 1.1.3 implementation. The bridge adds no custom progress UI or input handlers; NEI retains its existing interaction. Actual client feedback and large-network TPS remain pending gameplay acceptance.
+
+## 1.1.5 recipe notice
+
+The unsupported-recipe notice is triggered only when the NEI worker attempts a recipe that lacks a supported terminal overlay. Inventory-satisfied recipes do not reach this check. A thread-local limit permits one notice per chain, and the chat message is queued onto the client tick thread. It uses the actual output name and recipe handler name with the packaged English/Chinese translation; it does not change recipe selection or inventory handling.
+
+The candidate passed 55 lightweight assertions for each of the three dependency combinations and 61 isolated RC1 native assertions. The native routing regression also exercises `RecipeChainIterator.updateInventory()` and `next()` to ensure existing intermediates remain intermediates. Actual chat display in the client and large-network TPS remain pending gameplay acceptance.

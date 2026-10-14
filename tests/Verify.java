@@ -52,10 +52,10 @@ public class Verify {
         try{System.setErr(new PrintStream(warnings,true,"UTF-8"));for(int i=0;i<20;i++)BridgeLog.warning("audit-spam","audit warning",null);}
         finally{System.setErr(prior);}
         check(new String(warnings.toByteArray(),StandardCharsets.UTF_8).split("audit warning",-1).length==2,"twenty repeated errors produce one warning within rate window");
-        boundedNbt(); cancellation(); capacity(); goals();
+        boundedNbt(); cancellation(); capacity(); goals(); notice();
         ae2nei.core.AE2NEIMod mod=new ae2nei.core.AE2NEIMod();
-        check(mod.compatible(Collections.singletonMap("ae2neiautocraftbridge","1.1.4"),cpw.mods.fml.relauncher.Side.SERVER),"matching new protocol accepted");
-        check(!mod.compatible(Collections.singletonMap("ae2neiautocraftbridge","1.1.3"),cpw.mods.fml.relauncher.Side.CLIENT),"older bridge peer rejected by version handshake");
+        check(mod.compatible(Collections.singletonMap("ae2neiautocraftbridge","1.1.5"),cpw.mods.fml.relauncher.Side.SERVER),"matching new protocol accepted");
+        check(!mod.compatible(Collections.singletonMap("ae2neiautocraftbridge","1.1.4"),cpw.mods.fml.relauncher.Side.CLIENT),"older bridge peer rejected by version handshake");
         System.out.println("PASS: "+assertions+" bytecode/protocol assertions. Native gameplay is checked separately.");
     }
     static byte[] gzip(byte[] raw)throws Exception {
@@ -128,10 +128,27 @@ public class Verify {
         plan.recipeIngredients.add(new Goal("intermediate",new Object()));
         List<Object> outputs=AE2NEICraftingBridge.goalStacks(plan);
         check(outputs.contains("target"),"master-root target recognized when initialItems only contains unrelated bookmark");
-        check(outputs.contains("ordinary")&&!outputs.contains("intermediate"),"ordinary goal retained while non-root ingredient excluded");
+        check(!outputs.contains("ordinary")&&!outputs.contains("intermediate"),"iterator inventory and non-root ingredients cannot become output goals");
         plan.recipeIngredients.add(new Goal("second target",RootPlan.ROOT_RECIPE_ID));
         check(AE2NEICraftingBridge.goalStacks(plan).contains("second target"),"multiple master-root outputs all retained");
         check(AE2NEICraftingBridge.goalStacks(null).isEmpty(),"unknown goal list cannot authorize output relocation");
+    }
+    public static class NoticeItem { public String getDisplayName(){return "Steel Plate";} }
+    public static class NoticePosition { public Object item=new NoticeItem(); }
+    public static class NoticeHandler {
+        public Object result=new NoticePosition();
+        public Object getResultStack(int index){return result;}
+        public String getRecipeName(){return "Metal Bender";}
+    }
+    public static class NoticeRef { public final NoticeHandler handler=new NoticeHandler();public final int recipeIndex=0; }
+    static void notice() throws Exception {
+        NoticeRef ref=new NoticeRef();String[] names=AE2NEICraftingBridge.unsupportedRecipe(ref);
+        check(Arrays.equals(names,new String[]{"Steel Plate","Metal Bender"}),"notice names the actual item and bookmarked recipe handler");
+        ref.handler.result=null;
+        check(AE2NEICraftingBridge.unsupportedRecipe(ref)==null,"missing recipe output does not fabricate a machine notice");
+        java.lang.reflect.Field f=AE2NEICraftingBridge.class.getDeclaredField("NOTIFIED");f.setAccessible(true);
+        ThreadLocal<Boolean> notified=(ThreadLocal<Boolean>)f.get(null);notified.set(true);AE2NEICraftingBridge.beginProcessing();
+        check(notified.get()==null,"a new NEI chain resets its one-notice limit");
     }
     public static class FakeStack {
         public int stackSize;final int max;FakeStack(int count,int max){stackSize=count;this.max=max;}

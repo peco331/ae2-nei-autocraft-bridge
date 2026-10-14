@@ -35,7 +35,12 @@ def limit_test_cpu(pid):
 parser=argparse.ArgumentParser()
 parser.add_argument('--reuse',action='store_true')
 parser.add_argument('--runtime-name',default='isolated-server')
+parser.add_argument('--bridge',type=Path,help='Explicit bridge JAR for version comparison')
+parser.add_argument('--harness-source',type=Path,default=ROOT/'tests/NativeCraftingAudit.java')
 args=parser.parse_args()
+bridge=(args.bridge or Path(CP.split(';',1)[0])).resolve()
+if not bridge.is_file() or not args.harness_source.is_file():raise SystemExit('Selected bridge JAR or harness source is missing')
+CP=str(bridge)+';'+CP.split(';',1)[1]
 # Enforce the resource rule before copying or launching any RC1 runtime.
 offline=runpy.run_path(str(ROOT/'install.py'))['offline']
 offline()
@@ -67,11 +72,11 @@ for jar in (SERVER/'mods').glob('*.jar'):
 for jar in (runtime/'mods').glob('ae2-nei-autocraft-bridge-*.jar'):
     previous=runtime/'prior-bridge-jars';previous.mkdir(exist_ok=True)
     shutil.move(str(jar),str(previous/(jar.name+'.'+time.strftime('%Y%m%d-%H%M%S'))))
-shutil.copy2(Path(CP.split(';',1)[0]),runtime/'mods')
+shutil.copy2(bridge,runtime/'mods')
 (runtime/'eula.txt').write_text('eula=true\n',encoding='utf-8')
 (runtime/'server.properties').write_text('server-ip=127.0.0.1\nserver-port=25587\nonline-mode=false\nlevel-name=isolated-ae2-test\nlevel-type=FLAT\ngenerator-settings=2;7,2x3,2;1;\nallow-nether=false\nspawn-protection=0\nmax-players=1\nview-distance=2\n',encoding='utf-8')
 classes=ROOT/'build/native-test-classes';classes.mkdir(exist_ok=True)
-subprocess.run([str(JAVA/'javac.exe'),'-J-Xmx256m','--release','8','-encoding','UTF-8','-cp',CP,'-d',str(classes),str(ROOT/'tests/NativeCraftingAudit.java')],check=True)
+subprocess.run([str(JAVA/'javac.exe'),'-J-Xmx256m','--release','8','-encoding','UTF-8','-cp',CP,'-d',str(classes),str(args.harness_source)],check=True)
 subprocess.run([str(JAVA/'jar.exe'),'cf',str(runtime/'mods/ae2-nei-native-audit.jar'),'-C',str(classes),'.'],check=True)
 console=runtime/'console.log'
 with console.open('w',encoding='utf-8') as log:
@@ -79,7 +84,8 @@ with console.open('w',encoding='utf-8') as log:
     command=[str(JAVA/'java.exe'),'-Xms1G','-Xmx4G','-XX:ActiveProcessorCount=2','-XX:+UseG1GC','-Dfml.readTimeout=180','-Duser.language=en','-Dae2nei.auditBaseline='+str(ROOT/'dist/ae2-nei-autocraft-bridge-1.1.0.jar'),'@java9args.txt','-jar','lwjgl3ify-forgePatches.jar','nogui']
     proc=subprocess.Popen(command,cwd=runtime,stdin=subprocess.PIPE,stdout=log,stderr=subprocess.STDOUT,text=True)
     print('Isolated PID:',proc.pid,'port: 127.0.0.1:25587',flush=True)
-    record={'pid':proc.pid,'started':datetime.now().astimezone().isoformat(),'target':str(runtime),'command':command,'port':25587,'world':'isolated-ae2-test','production_world_used':False}
+    record={'pid':proc.pid,'started':datetime.now().astimezone().isoformat(),'target':str(runtime),'command':command,'port':25587,'world':'isolated-ae2-test','production_world_used':False,
+        'bridge':str(bridge.resolve()),'bridge_sha256':hashlib.sha256(bridge.read_bytes()).hexdigest(),'harness_source':str(args.harness_source.resolve())}
     (runtime/'run.json').write_text(json.dumps(record,indent=2))
     start=time.monotonic()
     try:

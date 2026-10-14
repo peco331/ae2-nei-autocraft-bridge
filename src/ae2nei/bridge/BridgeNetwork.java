@@ -34,6 +34,7 @@ public final class BridgeNetwork {
     private static final Map<Object, ServerTask> SERVER = new LinkedHashMap<Object, ServerTask>();
     private static final Map<Object, Long> LAST = new WeakHashMap<Object, Long>();
     private static SimpleNetworkWrapper channel;
+    static void postClient(Runnable action) { CLIENT.add(action); }
 
     public static void init() {
         channel = NetworkRegistry.INSTANCE.newSimpleChannel("ae2neibridge");

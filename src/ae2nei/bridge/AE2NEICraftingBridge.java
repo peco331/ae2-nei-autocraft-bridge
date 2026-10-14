@@ -9,7 +9,8 @@ public final class AE2NEICraftingBridge {
     private static final ThreadLocal<Boolean> HALTED = new ThreadLocal<Boolean>();
     private static final ThreadLocal<byte[]> SNAPSHOT = new ThreadLocal<byte[]>();
     private static final ThreadLocal<Object> PLAN = new ThreadLocal<Object>();
-    public static void beginProcessing() { HALTED.remove(); SNAPSHOT.remove(); PLAN.remove(); }
+    private static final ThreadLocal<Boolean> NOTIFIED = new ThreadLocal<Boolean>();
+    public static void beginProcessing() { HALTED.remove(); SNAPSHOT.remove(); PLAN.remove(); NOTIFIED.remove(); }
     static byte[] takeSnapshot() { byte[] bytes = SNAPSHOT.get(); SNAPSHOT.remove(); return bytes; }
     static void rememberSnapshot(byte[] bytes) { SNAPSHOT.set(bytes); }
     public static boolean isCraftingTerm(Object gui) {
@@ -62,9 +63,13 @@ public final class AE2NEICraftingBridge {
         try {
             if (Boolean.TRUE.equals(HALTED.get())) return false;
             Object overlay = Reflect.call(ref, "getOverlayHandler", gui);
-            return (Reflect.is(overlay, "appeng.integration.modules.NEIHelpers.NEICraftingHandler")
-                || (overlay != null && overlay.getClass().getName().equals("com.github.vfyjxf.nee.nei.NEECraftingTerminalHandler")))
-                && Reflect.call(Reflect.get(ref, "handler"), "getResultStack", Reflect.get(ref, "recipeIndex")) != null;
+            boolean supported = Reflect.is(overlay, "appeng.integration.modules.NEIHelpers.NEICraftingHandler")
+                || (overlay != null && overlay.getClass().getName().equals("com.github.vfyjxf.nee.nei.NEECraftingTerminalHandler"));
+            if (!supported) {
+                notifyUnsupported(ref, gui);
+                return false;
+            }
+            return Reflect.call(Reflect.get(ref, "handler"), "getResultStack", Reflect.get(ref, "recipeIndex")) != null;
         } catch (Exception e) { report("canCraft", e); return false; }
     }
     public static boolean craft(final Object ref, final Object gui, final int amount) {
@@ -100,13 +105,11 @@ public final class AE2NEICraftingBridge {
             return result.completed > 0;
         } catch (Exception e) { HALTED.set(true); report("craft", e); return false; }
     }
-    /** Recipe outputs live in master-root ingredients; initialItems are ordinary bookmarks. */
+    /** Recipe outputs live in master-root ingredients; initialItems becomes the iterator's inventory. */
     public static List<Object> goalStacks(Object plan) {
         java.util.ArrayList<Object> goals = new java.util.ArrayList<Object>();
         if (plan == null) return goals;
         try {
-            for (Object goal : (List<?>) Reflect.get(plan, "initialItems"))
-                goals.add(Reflect.get(goal, "itemStack"));
             if (!Boolean.TRUE.equals(Reflect.call(plan, "hasMasterRoot"))) return java.util.Collections.emptyList();
             Object root = Reflect.get(plan.getClass(), "ROOT_RECIPE_ID");
             for (Object goal : (List<?>) Reflect.get(plan, "recipeIngredients")) {
@@ -126,6 +129,38 @@ public final class AE2NEICraftingBridge {
             if (ServerCrafting.same(stack, goal)) return 1;
         }
         return 2;
+    }
+    static String[] unsupportedRecipe(Object ref) throws Exception {
+        Object handler = Reflect.get(ref, "handler");
+        Object result = Reflect.call(handler, "getResultStack", Reflect.get(ref, "recipeIndex"));
+        Object item = result == null ? null : Reflect.get(result, "item");
+        if (item == null) return null;
+        String name = String.valueOf(Reflect.call(item, "func_82833_r|getDisplayName"));
+        String recipe = String.valueOf(Reflect.call(handler, "getRecipeName"));
+        return new String[]{name, recipe};
+    }
+    private static void notifyUnsupported(Object ref, final Object gui) {
+        if (!worker() || Boolean.TRUE.equals(NOTIFIED.get())) return;
+        try {
+            final String[] names = unsupportedRecipe(ref);
+            if (names == null) return;
+            NOTIFIED.set(true);
+            BridgeNetwork.postClient(new Runnable() {
+                public void run() {
+                    try {
+                        Object current = Reflect.call(Class.forName("codechicken.nei.NEIClientUtils"), "getGuiContainer");
+                        if (current != gui) return;
+                        Object mc = Reflect.get(gui, "field_146297_k", "mc");
+                        Object player = Reflect.get(mc, "field_71439_g", "thePlayer");
+                        if (player == null) return;
+                        Object message = Class.forName("net.minecraft.util.ChatComponentTranslation")
+                            .getConstructor(String.class, Object[].class)
+                            .newInstance("ae2nei.autocraft.unsupported", new Object[]{names[0], names[1]});
+                        Reflect.call(player, "func_145747_a|addChatMessage", message);
+                    } catch (Exception e) { report("unsupported recipe notice", e); }
+                }
+            });
+        } catch (Exception e) { report("unsupported recipe notice", e); }
     }
     static int window(Object gui) throws Exception {
         return ((Number) Reflect.get(Reflect.get(gui, "field_147002_h", "inventorySlots"), "field_75152_c", "windowId")).intValue();

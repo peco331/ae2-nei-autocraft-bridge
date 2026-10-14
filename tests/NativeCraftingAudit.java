@@ -224,6 +224,11 @@ public class NativeCraftingAudit {
             &&AE2NEICraftingBridge.craftOperation(middle,null)==1,"multiple explicit goals and unknown goal lists preserve requested outputs");
         Object variant=stack(quartz,3),tag=InventorySnapshot.tag();call(tag,"func_74778_a|setString","auditVariant","different");call(variant,"func_77982_d|setTagCompound",tag);
         check(AE2NEICraftingBridge.craftOperation(middle,plan(variant))==2,"goal classification distinguishes exact NBT variants");
+        Object observedInventory=cls("codechicken.nei.ItemStackAmount").newInstance();call(observedInventory,"add",middle,4L);
+        Object iterator=cls("codechicken.nei.recipe.chain.RecipeChainIterator").getConstructor(cls("codechicken.nei.recipe.chain.RecipeChainMath"),List.class).newInstance(realPlan,Collections.emptyList());
+        call(iterator,"updateInventory",observedInventory);call(iterator,"next");
+        check(!((List<?>)get(realPlan,"initialItems")).isEmpty()&&AE2NEICraftingBridge.craftOperation(middle,realPlan)==2
+            &&AE2NEICraftingBridge.craftOperation(finalStack,realPlan)==1,"real NEI iterator inventory refresh never promotes existing intermediates to final goals");
         clearPlayer();call(list,"resetStatus");insertCapacity=Long.MAX_VALUE;put(star,10);
         BridgeNetwork.Result a=ServerCrafting.execute(intermediate(1,middle,star),player);
         check(a.completed==1&&playerAmount(quartz)==0&&amount(quartz)==4,"four intermediate outputs go to ME with exact native completion count");
