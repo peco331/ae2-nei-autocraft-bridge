@@ -21,6 +21,7 @@ public final class ServerCrafting {
         final BridgeNetwork.Request req;
         final Object player;
         Object container, expected, packet;
+        GoalPreparation goals;
         int completed;
         boolean initialized, touched;
         public Job(BridgeNetwork.Request req, Object player) { this.req = req; this.player = player; }
@@ -46,6 +47,15 @@ public final class ServerCrafting {
                 if (!Boolean.TRUE.equals(Reflect.call(security, "hasPermission", player, enumValue("appeng.api.config.SecurityPermissions", "EXTRACT")))
                     || !Boolean.TRUE.equals(Reflect.call(energy, "isNetworkPowered"))) return finish(2, false);
                 if (req.operation == 0) return finish(0, true);
+                if (req.operation == 3) {
+                    if (req.amount != 0 || req.expected.length != 0 || slice < 1) return finish(3, false);
+                    if (goals == null) {
+                        goals = new GoalPreparation(req.recipe);
+                        touched = true;
+                        returnRemainders(container, player);
+                    }
+                    return goals.advance(container, player, energy, slice) ? finish(0, true) : null;
+                }
                 if ((req.operation != 1 && req.operation != 2) || req.amount < 1 || req.amount > 64 || slice < 1) return finish(3, false);
                 Object output = Reflect.get(container, "outputSlot");
                 if (!Reflect.is(output, "appeng.container.slot.SlotCraftingTerm")) return finish(3, false);

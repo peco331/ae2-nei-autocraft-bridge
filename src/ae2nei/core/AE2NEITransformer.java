@@ -92,6 +92,7 @@ public class AE2NEITransformer implements IClassTransformer {
 
         boolean transformedCanCraft = false;
         boolean transformedCraft = false;
+        boolean transformedReference = false;
 
         for (Object obj : cn.methods) {
             MethodNode mn = (MethodNode) obj;
@@ -102,6 +103,16 @@ public class AE2NEITransformer implements IClassTransformer {
                 for (AbstractInsnNode insn = mn.instructions.getFirst(); insn != null; insn = insn.getNext()) {
                     if (insn instanceof MethodInsnNode) {
                         MethodInsnNode minsn = (MethodInsnNode) insn;
+
+                        if ("codechicken/nei/recipe/RecipeHandlerRef".equals(minsn.owner) && "of".equals(minsn.name)
+                            && "(Lcodechicken/nei/recipe/Recipe$RecipeId;)Lcodechicken/nei/recipe/RecipeHandlerRef;".equals(minsn.desc)) {
+                            minsn.owner = "ae2nei/bridge/AE2NEICraftingBridge";
+                            minsn.name = "recipeReference";
+                            minsn.desc = "(Ljava/lang/Object;)Ljava/lang/Object;";
+                            minsn.itf = false;
+                            mn.instructions.insert(minsn, new TypeInsnNode(Opcodes.CHECKCAST, "codechicken/nei/recipe/RecipeHandlerRef"));
+                            transformedReference = true;
+                        }
 
                         // 1. Replace RecipeHandlerRef.canCraft(GuiContainer)Z
                         if ("codechicken/nei/recipe/RecipeHandlerRef".equals(minsn.owner) &&
@@ -137,13 +148,13 @@ public class AE2NEITransformer implements IClassTransformer {
             }
         }
 
-        if (transformedCanCraft && transformedCraft) {
+        if (transformedCanCraft && transformedCraft && transformedReference) {
             System.out.println("[AE2-NEI-Bridge] Successfully transformed AutoCraftingManager$1 (canCraft=" + transformedCanCraft + ", craft=" + transformedCraft + ")");
             ClassWriter cw = new ClassWriter(ClassWriter.COMPUTE_MAXS);
             cn.accept(cw);
             return cw.toByteArray();
         }
 
-        throw new IllegalStateException("Unsupported NEI worker: canCraft=" + transformedCanCraft + ", craft=" + transformedCraft);
+        throw new IllegalStateException("Unsupported NEI worker: canCraft=" + transformedCanCraft + ", craft=" + transformedCraft + ", reference=" + transformedReference);
     }
 }

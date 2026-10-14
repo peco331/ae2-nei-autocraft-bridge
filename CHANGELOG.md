@@ -1,5 +1,17 @@
 # Changelog
 
+## 1.1.6 — Unreleased
+
+- Retrieve available requested outputs from ME into the player inventory before NEI calculates missing crafts. A goal of four with two stored now retrieves two and crafts the remaining two; already satisfied goals can be collected without crafting.
+- Bound preparation across ticks, respecting item stack limits, inventory capacity, NBT identity, view-cell filters, power, EXTRACT permission, window identity and cancellation.
+- Show the existing recipe notice even when NEI cannot resolve a bookmarked machine recipe; report unresolved non-machine bookmarks separately.
+- Stop labelling normal NEI cancellation as a request timeout. Actual timeouts still stop uncertain requests without retrying.
+- Require matching 1.1.6 peers for the new preparation operation.
+
+Validation: three dependency combinations each passed 56 lightweight assertions; 83 native RC1 assertions and four local scenarios using the actual bookmarked GT turbine recipe passed. Client interaction and large-network TPS acceptance remain pending.
+
+补上 ME 已有目标的领取步骤，再按真实库存计算需要合成的数量；保留 NEI 两种合成模式的原有规则。收藏机器配方未能解析时也会提示，正常取消不再被记录为请求超时。此版本尚未公开发行。
+
 ## 1.1.5 — Unreleased
 
 - Add one localized chat notice per NEI chain when a bookmarked recipe cannot run in the crafting terminal. Name the material and recipe type so machine ingredients can be prepared beforehand; preserve bookmarks and existing controls.

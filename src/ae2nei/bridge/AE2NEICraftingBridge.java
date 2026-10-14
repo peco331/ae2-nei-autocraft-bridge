@@ -10,7 +10,8 @@ public final class AE2NEICraftingBridge {
     private static final ThreadLocal<byte[]> SNAPSHOT = new ThreadLocal<byte[]>();
     private static final ThreadLocal<Object> PLAN = new ThreadLocal<Object>();
     private static final ThreadLocal<Boolean> NOTIFIED = new ThreadLocal<Boolean>();
-    public static void beginProcessing() { HALTED.remove(); SNAPSHOT.remove(); PLAN.remove(); NOTIFIED.remove(); }
+    private static final ThreadLocal<Boolean> PREPARED = new ThreadLocal<Boolean>();
+    public static void beginProcessing() { HALTED.remove(); SNAPSHOT.remove(); PLAN.remove(); NOTIFIED.remove(); PREPARED.remove(); }
     static byte[] takeSnapshot() { byte[] bytes = SNAPSHOT.get(); SNAPSHOT.remove(); return bytes; }
     static void rememberSnapshot(byte[] bytes) { SNAPSHOT.set(bytes); }
     public static boolean isCraftingTerm(Object gui) {
@@ -32,6 +33,17 @@ public final class AE2NEICraftingBridge {
         try {
             if (worker()) {
                 if (Boolean.TRUE.equals(HALTED.get())) return emptyInventory();
+                if (!Boolean.TRUE.equals(PREPARED.get())) {
+                    Object plan = Reflect.get(Class.forName("codechicken.nei.recipe.AutoCraftingManager"), "math");
+                    PLAN.set(plan);
+                    final byte[] goals = GoalPreparation.encode(plan);
+                    BridgeNetwork.Result prepared = BridgeNetwork.request(gui, new Callable<BridgeNetwork.Request>() {
+                        public BridgeNetwork.Request call() throws Exception { return new BridgeNetwork.Request(3, window(gui), 0, goals, new byte[0]); }
+                    });
+                    if (prepared == null || prepared.status != 0) { HALTED.set(true); return emptyInventory(); }
+                    PREPARED.set(true);
+                    return InventorySnapshot.decode(prepared.snapshot);
+                }
                 byte[] observed = takeSnapshot();
                 if (observed != null && active(gui)) return InventorySnapshot.decode(observed);
                 BridgeNetwork.Result result = BridgeNetwork.request(gui, new Callable<BridgeNetwork.Request>() {
@@ -106,7 +118,7 @@ public final class AE2NEICraftingBridge {
         } catch (Exception e) { HALTED.set(true); report("craft", e); return false; }
     }
     /** Recipe outputs live in master-root ingredients; initialItems becomes the iterator's inventory. */
-    public static List<Object> goalStacks(Object plan) {
+    public static List<Object> goalItems(Object plan) {
         java.util.ArrayList<Object> goals = new java.util.ArrayList<Object>();
         if (plan == null) return goals;
         try {
@@ -114,13 +126,19 @@ public final class AE2NEICraftingBridge {
             Object root = Reflect.get(plan.getClass(), "ROOT_RECIPE_ID");
             for (Object goal : (List<?>) Reflect.get(plan, "recipeIngredients")) {
                 if (root != null && root.equals(Reflect.get(goal, "recipeId")))
-                    goals.add(Reflect.get(goal, "itemStack"));
+                    goals.add(goal);
             }
             return goals;
         } catch (Exception e) {
             report("goal classification", e);
             return java.util.Collections.emptyList(); // Unknown plans must not relocate outputs.
         }
+    }
+    public static List<Object> goalStacks(Object plan) {
+        java.util.ArrayList<Object> stacks = new java.util.ArrayList<Object>();
+        try { for (Object item : goalItems(plan)) stacks.add(Reflect.get(item, "itemStack")); }
+        catch (Exception e) { report("goal classification", e); return java.util.Collections.emptyList(); }
+        return stacks;
     }
     public static int craftOperation(Object stack, Object plan) throws Exception {
         List<Object> goals = goalStacks(plan);
@@ -139,13 +157,36 @@ public final class AE2NEICraftingBridge {
         String recipe = String.valueOf(Reflect.call(handler, "getRecipeName"));
         return new String[]{name, recipe};
     }
+    public static Object recipeReference(Object id) throws Exception {
+        Object ref = Reflect.call(Class.forName("codechicken.nei.recipe.RecipeHandlerRef"), "of", id);
+        if (ref == null && worker() && !Boolean.TRUE.equals(HALTED.get()) && !Boolean.TRUE.equals(NOTIFIED.get())) {
+            Object gui = Reflect.call(Class.forName("codechicken.nei.NEIClientUtils"), "getGuiContainer");
+            if (isCraftingTerm(gui)) {
+                Object stack = Reflect.call(id, "getResult");
+                String handler = String.valueOf(Reflect.call(id, "getHandlerName"));
+                if (stack != null) {
+                    String name = String.valueOf(Reflect.call(stack, "func_82833_r|getDisplayName"));
+                    if (handler.startsWith("gt.recipe.")) {
+                        String type = String.valueOf(Reflect.call(Class.forName("net.minecraft.util.StatCollector"), "func_74838_a|translateToLocal", handler));
+                        notifyMessage("ae2nei.autocraft.unsupported", new String[]{name, type}, gui);
+                    } else notifyMessage("ae2nei.autocraft.unresolved", new String[]{name}, gui);
+                }
+            }
+        }
+        return ref;
+    }
     private static void notifyUnsupported(Object ref, final Object gui) {
         if (!worker() || Boolean.TRUE.equals(NOTIFIED.get())) return;
         try {
             final String[] names = unsupportedRecipe(ref);
             if (names == null) return;
-            NOTIFIED.set(true);
-            BridgeNetwork.postClient(new Runnable() {
+            notifyMessage("ae2nei.autocraft.unsupported", names, gui);
+        } catch (Exception e) { report("unsupported recipe notice", e); }
+    }
+    private static void notifyMessage(final String key, final String[] names, final Object gui) {
+        if (Boolean.TRUE.equals(NOTIFIED.get())) return;
+        NOTIFIED.set(true);
+        BridgeNetwork.postClient(new Runnable() {
                 public void run() {
                     try {
                         Object current = Reflect.call(Class.forName("codechicken.nei.NEIClientUtils"), "getGuiContainer");
@@ -155,12 +196,11 @@ public final class AE2NEICraftingBridge {
                         if (player == null) return;
                         Object message = Class.forName("net.minecraft.util.ChatComponentTranslation")
                             .getConstructor(String.class, Object[].class)
-                            .newInstance("ae2nei.autocraft.unsupported", new Object[]{names[0], names[1]});
+                            .newInstance(key, (Object[]) names);
                         Reflect.call(player, "func_145747_a|addChatMessage", message);
                     } catch (Exception e) { report("unsupported recipe notice", e); }
                 }
-            });
-        } catch (Exception e) { report("unsupported recipe notice", e); }
+        });
     }
     static int window(Object gui) throws Exception {
         return ((Number) Reflect.get(Reflect.get(gui, "field_147002_h", "inventorySlots"), "field_75152_c", "windowId")).intValue();

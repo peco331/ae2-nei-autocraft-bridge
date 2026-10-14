@@ -189,6 +189,7 @@ public class NativeCraftingAudit {
         polishTests(star,quartz,diamond);
         intermediateTests(star,quartz,emerald,diamond);
         turbineTest(star,diamond);
+        goalPreparationTests(star,diamond);
         benchmarkSnapshot(star);
     }
     void clearPlayer()throws Exception{Object inv=get(player,"field_71071_by","inventory");for(int i=0;i<36;i++)call(inv,"func_70299_a|setInventorySlotContents",i,null);}
@@ -347,6 +348,96 @@ public class NativeCraftingAudit {
             &&call(cls("appeng.util.Platform"),"isSameItemPrecise",merged,turbine).equals(true)&&emptyMatrix(),
             "two actual GT basic steam turbines merge despite a newly freed earlier slot; grid empty");
     }
+    Object singleRecipePlan(Object output,long quantity,Object... inputs)throws Exception {
+        List<Object> ingredients=new ArrayList<Object>();for(Object input:inputs)ingredients.add(stack(input,1));
+        Object id=call(cls("codechicken.nei.recipe.Recipe$RecipeId"),"of",output,"ae2nei-goal-audit",ingredients);
+        List<Object> bookmarks=new ArrayList<Object>();
+        List<Object> all=new ArrayList<Object>();all.add(output);all.addAll(ingredients);
+        for(int i=0;i<all.size();i++) {
+            Object s=all.get(i),builder=call(cls("codechicken.nei.bookmark.BookmarkItem"),"builder",-1,s);
+            call(builder,"recipeId",id);call(builder,"type",Enum.valueOf((Class)cls("codechicken.nei.bookmark.BookmarkItem$BookmarkItemType"),i==0?"RESULT":"INGREDIENT"));
+            call(builder,"permutations",Collections.singletonMap(String.valueOf(call(cls("codechicken.nei.recipe.StackInfo"),"getItemStackGUID",s)),s));
+            call(builder,"factor",(long)size(s));call(builder,"multiplier",quantity);bookmarks.add(call(builder,"build"));
+        }
+        Object math=call(cls("codechicken.nei.recipe.chain.RecipeChainMath"),"of",bookmarks,Collections.emptySet());call(math,"createMasterRoot");return math;
+    }
+    long precisePlayer(Object expected)throws Exception {
+        Object inventory=get(player,"field_71071_by","inventory");long amount=0;
+        for(int i=0;i<36;i++){Object s=call(inventory,"func_70301_a|getStackInSlot",i);if(s!=null&&Boolean.TRUE.equals(call(cls("appeng.util.Platform"),"isSameItemPrecise",expected,s)))amount+=size(s);}return amount;
+    }
+    int size(Object stack)throws Exception {return stack==null?0:((Number)get(stack,"field_77994_a","stackSize")).intValue();}
+    long preciseStored(Object expected)throws Exception {Object found=call(list,"findPrecise",ae(expected));return found==null?0:((Number)call(found,"getStackSize")).longValue();}
+    void putStack(Object stack,long quantity)throws Exception {Object s=ae(stack);call(s,"setStackSize",quantity);call(list,"addStorage",s);}
+    BridgeNetwork.Request prepare(Object math)throws Exception {return new BridgeNetwork.Request(3,7,0,GoalPreparation.encode(math),new byte[0]);}
+    long plannedCrafts(Object math,Object expected,byte[] snapshot)throws Exception {
+        Object iterator=cls("codechicken.nei.recipe.chain.RecipeChainIterator").getConstructor(cls("codechicken.nei.recipe.chain.RecipeChainMath"),List.class).newInstance(math,Collections.emptyList());
+        call(iterator,"updateInventory",InventorySnapshot.decode(snapshot));long count=0;
+        while(Boolean.TRUE.equals(call(iterator,"hasNext")))for(Map.Entry<Object,Long> step:((Map<Object,Long>)call(iterator,"next")).entrySet())
+            if(Boolean.TRUE.equals(call(cls("appeng.util.Platform"),"isSameItemPrecise",expected,call(step.getKey(),"getResult"))))count+=step.getValue();
+        return count;
+    }
+    void goalPreparationTests(Object star,Object diamond)throws Exception {
+        Object turbine=call(get(cls("gregtech.api.enums.ItemList"),"Generator_Steam_Turbine_LV"),"get",1L,new Object[0]);
+        clearPlayer();call(list,"resetStatus");put(star,10);put(diamond,10);putStack(turbine,2);
+        Object math=singleRecipePlan(turbine,4,star,diamond);
+        check(plannedCrafts(math,turbine,InventorySnapshot.capture(container,player))==2,"real NEI iterator plans two missing turbines when ME holds two and the goal is four");
+        BridgeNetwork.Result prepared=ServerCrafting.execute(prepare(math),player);
+        check(prepared.status==0&&precisePlayer(turbine)==2&&preciseStored(turbine)==0&&amount(star)==10&&amount(diamond)==10,"preparation physically retrieves the two existing goals without crafting or consuming ingredients");
+        check(plannedCrafts(singleRecipePlan(turbine,4,star,diamond),turbine,prepared.snapshot)==2,"post-transfer authoritative snapshot still plans exactly two missing crafts");
+        BridgeNetwork.Result result=ServerCrafting.execute(request(2,turbine,star,diamond),player);
+        check(result.completed==2&&precisePlayer(turbine)==4&&preciseStored(turbine)==0&&amount(star)==8&&amount(diamond)==8&&emptyMatrix(),"two retrieved plus two native crafted turbines finish as four in player with exact ingredient consumption");
+        check(plannedCrafts(singleRecipePlan(turbine,4,star,diamond),turbine,result.snapshot)==0,"real NEI iterator stops after the requested four are in player");
+        clearPlayer();call(list,"resetStatus");putStack(turbine,100);
+        prepared=ServerCrafting.execute(prepare(singleRecipePlan(turbine,4,star,diamond)),player);
+        check(precisePlayer(turbine)==4&&preciseStored(turbine)==96&&plannedCrafts(singleRecipePlan(turbine,4,star,diamond),turbine,prepared.snapshot)==0,"sufficient existing ME outputs are retrieved only up to the requested quantity with no new crafts");
+        prepared=ServerCrafting.execute(prepare(singleRecipePlan(turbine,4,star,diamond)),player);
+        check(precisePlayer(turbine)==4&&preciseStored(turbine)==96,"existing player goals prevent duplicate ME retrieval");
+        clearPlayer();call(list,"resetStatus");putStack(turbine,200);
+        prepared=ServerCrafting.execute(prepare(singleRecipePlan(turbine,130,star,diamond)),player);
+        check(prepared.status==0&&precisePlayer(turbine)==130&&preciseStored(turbine)==70,"goals larger than one stack are transferred across bounded slices");
+        clearPlayer();call(list,"resetStatus");putStack(turbine,200);
+        ServerCrafting.Job job=new ServerCrafting.Job(prepare(singleRecipePlan(turbine,130,star,diamond)),player);
+        check(job.advance(1)==null&&precisePlayer(turbine)==64&&preciseStored(turbine)==136,"one preparation slice moves at most one physical stack per step");
+        result=job.abort();check(result.status==5&&precisePlayer(turbine)==64&&preciseStored(turbine)==136,"cancelling preparation preserves only the confirmed real transfer");
+        clearPlayer();call(list,"resetStatus");Object inv=get(player,"field_71071_by","inventory");
+        for(int i=0;i<36;i++)call(inv,"func_70299_a|setInventorySlotContents",i,stack(diamond,64));
+        Object nearlyFull=call(turbine,"func_77946_l|copy");Reflect.set(nearlyFull,63,"field_77994_a","stackSize");call(inv,"func_70299_a|setInventorySlotContents",0,nearlyFull);putStack(turbine,200);
+        result=ServerCrafting.execute(prepare(singleRecipePlan(turbine,65,star,diamond)),player);
+        check(result.status==0&&precisePlayer(turbine)==64&&preciseStored(turbine)==199,"partial player capacity retrieves only what fits and retains the rest in ME");
+        clearPlayer();call(list,"resetStatus");Object sword=stack(item("field_151040_l"),1);putStack(sword,5);
+        result=ServerCrafting.execute(prepare(planSized(sword,3)),player);
+        check(result.status==0&&precisePlayer(sword)==3&&preciseStored(sword)==2&&occupied(call(sword,"func_77973_b|getItem"))==3,"unstackable goal items retain their own stack limit");
+        clearPlayer();call(list,"resetStatus");putStack(turbine,2);Object variant=call(turbine,"func_77946_l|copy"),tag=InventorySnapshot.tag();call(tag,"func_74778_a|setString","auditGoalVariant","distinct");call(variant,"func_77982_d|setTagCompound",tag);putStack(variant,5);
+        result=ServerCrafting.execute(prepare(singleRecipePlan(turbine,4,star,diamond)),player);
+        check(precisePlayer(turbine)==2&&preciseStored(variant)==5&&precisePlayer(variant)==0,"goal extraction keeps NBT-distinct ME items separate");
+        clearPlayer();call(list,"resetStatus");putStack(turbine,2);allowed=false;
+        result=ServerCrafting.execute(prepare(singleRecipePlan(turbine,4,star,diamond)),player);
+        check(result.status==2&&precisePlayer(turbine)==0&&preciseStored(turbine)==2,"preparation obeys EXTRACT permissions");allowed=true;powered=false;
+        result=ServerCrafting.execute(prepare(singleRecipePlan(turbine,4,star,diamond)),player);
+        check(result.status==2&&precisePlayer(turbine)==0&&preciseStored(turbine)==2,"preparation requires powered ME storage");powered=true;injectAllowed=false;
+        result=ServerCrafting.execute(prepare(singleRecipePlan(turbine,4,star,diamond)),player);
+        check(result.status==0&&precisePlayer(turbine)==2&&preciseStored(turbine)==0,"retrieving existing goals does not require INJECT permission");injectAllowed=true;
+        clearPlayer();call(list,"resetStatus");putStack(turbine,2);BridgeNetwork.Request stale=prepare(singleRecipePlan(turbine,4,star,diamond));stale.window=8;
+        result=ServerCrafting.execute(stale,player);check(result.status==1&&precisePlayer(turbine)==0&&preciseStored(turbine)==2,"stale window cannot extract stored goals");
+        boolean rejected=false;try{new GoalPreparation(goalPayload(turbine,257,1));}catch(IllegalArgumentException expected){rejected=true;}
+        check(rejected&&preciseStored(turbine)==2&&precisePlayer(turbine)==0,"oversized goal lists are rejected before inventory changes");
+        rejected=false;try{new GoalPreparation(goalPayload(turbine,1,0));}catch(IllegalArgumentException expected){rejected=true;}
+        check(rejected,"nonpositive requested goal quantities are rejected");
+        rejected=false;try{new GoalPreparation(goalPayload(turbine,2,Long.MAX_VALUE));}catch(ArithmeticException expected){rejected=true;}
+        check(rejected,"merging duplicate goal quantities cannot overflow");
+        clearPlayer();call(list,"resetStatus");putStack(turbine,200);
+        result=ServerCrafting.execute(new BridgeNetwork.Request(3,7,0,goalPayload(turbine,2,2),new byte[0]),player);
+        check(result.status==0&&precisePlayer(turbine)==4&&preciseStored(turbine)==196,"duplicate precise goals combine quantities before extraction");
+        clearPlayer();call(list,"resetStatus");putStack(turbine,10);put(diamond,10);Object a=call(turbine,"func_77946_l|copy");Reflect.set(a,4,"field_77994_a","stackSize");
+        result=ServerCrafting.execute(prepare(plan(a,stack(diamond,3))),player);
+        check(result.status==0&&precisePlayer(turbine)==4&&preciseStored(turbine)==6&&playerAmount(diamond)==3&&amount(diamond)==7,"multiple requested goals are retrieved independently without draining unrelated quantities");
+    }
+    byte[] goalPayload(Object stack,int count,long quantity)throws Exception {
+        Object entries=cls("net.minecraft.nbt.NBTTagList").newInstance(),root=InventorySnapshot.tag();
+        for(int i=0;i<count;i++){Object entry=call(stack,"func_77955_b|writeToNBT",InventorySnapshot.tag());call(entry,"func_74772_a|setLong","bridgeGoalQuantity",quantity);call(entries,"func_74742_a|appendTag",entry);}
+        call(root,"func_74782_a|setTag","goals",entries);return InventorySnapshot.compress(root);
+    }
+    Object planSized(Object stack,long count)throws Exception {Object s=call(stack,"func_77946_l|copy");Reflect.set(s,(int)count,"field_77994_a","stackSize");return plan(s);}
     void checkReceive()throws Exception{
         Object unsafe=get(cls("sun.misc.Unsafe"),"theUnsafe");
         Object handler=call(unsafe,"allocateInstance",cls("net.minecraft.network.NetHandlerPlayServer"));

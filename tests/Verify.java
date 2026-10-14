@@ -21,7 +21,7 @@ public class Verify {
         ClassNode inventory=transform(args[0],"codechicken.nei.recipe.AutoCraftingManager");
         check(calls(inventory,"appendTerminalInventoryItems")==1,"exact inventory hook");
         ClassNode worker=transform(args[0],"codechicken.nei.recipe.AutoCraftingManager$1");
-        check(calls(worker,"canCraft")==1&&calls(worker,"craft")==1&&calls(worker,"beginProcessing")==1,"all worker hooks must be present");
+        check(calls(worker,"canCraft")==1&&calls(worker,"craft")==1&&calls(worker,"beginProcessing")==1&&calls(worker,"recipeReference")==1,"all worker hooks including unresolved recipe lookup must be present");
         ClassNode slot=transform(args[1],"appeng.container.slot.SlotCraftingTerm");
         check(calls(slot,"cap")==1,"native craft cap hook must exist");
         check(ServerCrafting.cap(16)==16,"ordinary shift not limited");
@@ -54,8 +54,8 @@ public class Verify {
         check(new String(warnings.toByteArray(),StandardCharsets.UTF_8).split("audit warning",-1).length==2,"twenty repeated errors produce one warning within rate window");
         boundedNbt(); cancellation(); capacity(); goals(); notice();
         ae2nei.core.AE2NEIMod mod=new ae2nei.core.AE2NEIMod();
-        check(mod.compatible(Collections.singletonMap("ae2neiautocraftbridge","1.1.5"),cpw.mods.fml.relauncher.Side.SERVER),"matching new protocol accepted");
-        check(!mod.compatible(Collections.singletonMap("ae2neiautocraftbridge","1.1.4"),cpw.mods.fml.relauncher.Side.CLIENT),"older bridge peer rejected by version handshake");
+        check(mod.compatible(Collections.singletonMap("ae2neiautocraftbridge","1.1.6"),cpw.mods.fml.relauncher.Side.SERVER),"matching new protocol accepted");
+        check(!mod.compatible(Collections.singletonMap("ae2neiautocraftbridge","1.1.5"),cpw.mods.fml.relauncher.Side.CLIENT),"older bridge peer rejected by version handshake");
         System.out.println("PASS: "+assertions+" bytecode/protocol assertions. Native gameplay is checked separately.");
     }
     static byte[] gzip(byte[] raw)throws Exception {
@@ -149,6 +149,9 @@ public class Verify {
         java.lang.reflect.Field f=AE2NEICraftingBridge.class.getDeclaredField("NOTIFIED");f.setAccessible(true);
         ThreadLocal<Boolean> notified=(ThreadLocal<Boolean>)f.get(null);notified.set(true);AE2NEICraftingBridge.beginProcessing();
         check(notified.get()==null,"a new NEI chain resets its one-notice limit");
+        f=AE2NEICraftingBridge.class.getDeclaredField("PREPARED");f.setAccessible(true);
+        ThreadLocal<Boolean> prepared=(ThreadLocal<Boolean>)f.get(null);prepared.set(true);AE2NEICraftingBridge.beginProcessing();
+        check(prepared.get()==null,"a new chain must prepare its own output goals");
     }
     public static class FakeStack {
         public int stackSize;final int max;FakeStack(int count,int max){stackSize=count;this.max=max;}

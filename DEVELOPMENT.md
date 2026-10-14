@@ -17,7 +17,7 @@ An ignored `.local-paths.json` may supply `server_root`, `client_mods`, `librari
 ## Checks
 
 ```powershell
-py -3 -B tests/verify.py --bridge "dist/release-1.1.5/ae2-nei-autocraft-bridge-1.1.5.jar" --nei "path/to/NotEnoughItems.jar" --ae2 "path/to/appliedenergistics2.jar"
+py -3 -B tests/verify.py --bridge "dist/release-1.1.6/ae2-nei-autocraft-bridge-1.1.6.jar" --nei "path/to/NotEnoughItems.jar" --ae2 "path/to/appliedenergistics2.jar"
 ```
 
 Set the same path environment variables as above. This is a small JVM check of the three transformed classes, bounded protocol/NBT decoding, cancellation and successor queue handling, inventory capacity, snapshot consumption, reflection caching and log throttling. It does not launch Minecraft.
@@ -57,3 +57,11 @@ The 1.1.4 candidate passed 52 lightweight assertions on each of the three depend
 The unsupported-recipe notice is triggered only when the NEI worker attempts a recipe that lacks a supported terminal overlay. Inventory-satisfied recipes do not reach this check. A thread-local limit permits one notice per chain, and the chat message is queued onto the client tick thread. It uses the actual output name and recipe handler name with the packaged English/Chinese translation; it does not change recipe selection or inventory handling.
 
 The candidate passed 55 lightweight assertions for each of the three dependency combinations and 61 isolated RC1 native assertions. The native routing regression also exercises `RecipeChainIterator.updateInventory()` and `next()` to ensure existing intermediates remain intermediates. Actual chat display in the client and large-network TPS remain pending gameplay acceptance.
+
+## 1.1.6 goal preparation
+
+Operation 3 prepares master-root goals before the worker's first inventory observation. Its recipe payload contains up to 256 normalized item stacks with positive `bridgeGoalQuantity` values; it retains the existing compressed and expanded recipe limits. Duplicate precise goals are combined with overflow checking. The server moves only the amount needed to satisfy each goal in the player inventory, at most one physical stack per preparation step and four steps per tick. Returned inventory is an authoritative observation; preparation never predicts a craft or reports transferred items as completed crafts.
+
+The same container, power, permissions and cancellation checks apply to preparation and crafting. Ordinary workbenches keep the NEI implementation. Matching 1.1.6 peers are required because earlier servers do not support this operation. The worker also wraps recipe-reference lookup to explain unsupported machine bookmarks that resolve to null, while retaining NEI's recipe selection.
+
+Three dependency combinations passed 56 lightweight assertions each. Native RC1 validation passed 83 assertions, including real NEI deficit planning, physical retrieval, crafting completion, already satisfied goals, capacity, NBT variants, unstackable items, large goals, permissions, cancellation and payload limits. Four additional local scenarios used the actual bookmarked GT turbine recipe, including missing materials and two stored plus two newly crafted outputs. Full client interaction and large-network TPS acceptance remain separate.

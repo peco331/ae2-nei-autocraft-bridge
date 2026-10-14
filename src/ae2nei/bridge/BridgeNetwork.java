@@ -141,7 +141,8 @@ public final class BridgeNetwork {
                 try { return pending.future.get(25, TimeUnit.MILLISECONDS); }
                 catch (TimeoutException ignored) {}
             }
-            BridgeLog.warning("timeout", "Request timed out or cancelled; no automatic retry (id=" + id + ")", null);
+            if (AE2NEICraftingBridge.active(gui))
+                BridgeLog.warning("timeout", "Request timed out; no automatic retry (id=" + id + ")", null);
             return null;
         } finally {
             // Enqueue before releasing the client slot: a restarted worker sends after this cancel.
