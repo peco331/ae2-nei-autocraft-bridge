@@ -11,7 +11,8 @@ public final class AE2NEICraftingBridge {
     private static final ThreadLocal<Object> PLAN = new ThreadLocal<Object>();
     private static final ThreadLocal<Boolean> NOTIFIED = new ThreadLocal<Boolean>();
     private static final ThreadLocal<Boolean> PREPARED = new ThreadLocal<Boolean>();
-    public static void beginProcessing() { HALTED.remove(); SNAPSHOT.remove(); PLAN.remove(); NOTIFIED.remove(); PREPARED.remove(); }
+    private static final ThreadLocal<Integer> COMPLETED = new ThreadLocal<Integer>();
+    public static void beginProcessing() { HALTED.remove(); SNAPSHOT.remove(); PLAN.remove(); NOTIFIED.remove(); PREPARED.remove(); COMPLETED.remove(); }
     static byte[] takeSnapshot() { byte[] bytes = SNAPSHOT.get(); SNAPSHOT.remove(); return bytes; }
     static void rememberSnapshot(byte[] bytes) { SNAPSHOT.set(bytes); }
     public static boolean isCraftingTerm(Object gui) {
@@ -85,6 +86,7 @@ public final class AE2NEICraftingBridge {
         } catch (Exception e) { report("canCraft", e); return false; }
     }
     public static boolean craft(final Object ref, final Object gui, final int amount) {
+        COMPLETED.remove();
         if (!isCraftingTerm(gui)) {
             try { return (Boolean) Reflect.call(ref, "craft", gui, amount); }
             catch (Exception e) { report("original craft", e); return false; }
@@ -114,8 +116,20 @@ public final class AE2NEICraftingBridge {
             });
             if (result == null || result.status != 0) { HALTED.set(true); return false; }
             rememberSnapshot(result.snapshot);
-            return result.completed > 0;
+            return recordCompleted(result.completed, Math.min(64, amount));
         } catch (Exception e) { HALTED.set(true); report("craft", e); return false; }
+    }
+    static boolean recordCompleted(int completed, int requested) {
+        if (completed < 0 || completed > requested || requested < 1 || requested > 64)
+            throw new IllegalArgumentException("Invalid confirmed craft count");
+        COMPLETED.set(completed);
+        return completed > 0;
+    }
+    /** Consume one successful native batch acknowledgement; ordinary NEI overlays retain their 64-step contract. */
+    public static long completedCrafts() {
+        Integer count = COMPLETED.get();
+        COMPLETED.remove();
+        return count == null ? 64L : count.longValue();
     }
     /** Recipe outputs live in master-root ingredients; initialItems becomes the iterator's inventory. */
     public static List<Object> goalItems(Object plan) {
@@ -133,6 +147,29 @@ public final class AE2NEICraftingBridge {
             report("goal classification", e);
             return java.util.Collections.emptyList(); // Unknown plans must not relocate outputs.
         }
+    }
+    /** Shift+C plans keyed by identity; values are the root goals created before NEI raised satisfied ones. */
+    private static final java.util.Map<Object, java.util.Set<Object>> UNRAISED_GOALS =
+        java.util.Collections.synchronizedMap(new java.util.WeakHashMap<Object, java.util.Set<Object>>());
+    public static Object ignoreInventoryRoot(Object plan, Object rootId) {
+        try {
+            java.util.Set<Object> goals = java.util.Collections.newSetFromMap(new java.util.IdentityHashMap<Object, Boolean>());
+            goals.addAll(goalItems(plan));
+            UNRAISED_GOALS.put(plan, goals);
+        } catch (Exception e) { report("craft items goals", e); }
+        return rootId;
+    }
+    /**
+     * Goals to retrieve from ME before planning. Shift+C replaces goals already met by the terminal's
+     * ME + player view with a larger "next batch" goal; retrieving those would move the whole ME stock.
+     */
+    public static List<Object> retrievalGoals(Object plan) {
+        List<Object> goals = goalItems(plan);
+        java.util.Set<Object> unraised = plan == null ? null : UNRAISED_GOALS.get(plan);
+        if (unraised == null) return goals;
+        java.util.ArrayList<Object> kept = new java.util.ArrayList<Object>();
+        for (Object goal : goals) if (unraised.contains(goal)) kept.add(goal);
+        return kept;
     }
     public static List<Object> goalStacks(Object plan) {
         java.util.ArrayList<Object> stacks = new java.util.ArrayList<Object>();
@@ -157,11 +194,22 @@ public final class AE2NEICraftingBridge {
         String recipe = String.valueOf(Reflect.call(handler, "getRecipeName"));
         return new String[]{name, recipe};
     }
-    public static Object recipeReference(Object id) throws Exception {
-        Object ref = Reflect.call(Class.forName("codechicken.nei.recipe.RecipeHandlerRef"), "of", id);
-        if (ref == null && worker() && !Boolean.TRUE.equals(HALTED.get()) && !Boolean.TRUE.equals(NOTIFIED.get())) {
-            Object gui = Reflect.call(Class.forName("codechicken.nei.NEIClientUtils"), "getGuiContainer");
-            if (isCraftingTerm(gui)) {
+    public static Object recipeReference(Object id, Object gui) throws Exception {
+        boolean bridge = worker() && isCraftingTerm(gui);
+        if (bridge && Boolean.TRUE.equals(HALTED.get())) return null;
+        Object ref;
+        try {
+            ref = Reflect.call(Class.forName("codechicken.nei.recipe.RecipeHandlerRef"), "of", id);
+        } catch (Exception e) {
+            if (!bridge) throw e;
+            // RestartableTask does not clear its thread field when execute() throws.
+            // End this bridge run normally so the next shortcut can start a fresh task.
+            HALTED.set(true);
+            report("recipe lookup", e);
+            return null;
+        }
+        if (ref == null && bridge && !Boolean.TRUE.equals(NOTIFIED.get())) {
+            try {
                 Object stack = Reflect.call(id, "getResult");
                 String handler = String.valueOf(Reflect.call(id, "getHandlerName"));
                 if (stack != null) {
@@ -171,7 +219,7 @@ public final class AE2NEICraftingBridge {
                         notifyMessage("ae2nei.autocraft.unsupported", new String[]{name, type}, gui);
                     } else notifyMessage("ae2nei.autocraft.unresolved", new String[]{name}, gui);
                 }
-            }
+            } catch (Exception e) { report("unsupported recipe notice", e); }
         }
         return ref;
     }

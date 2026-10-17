@@ -21,7 +21,9 @@ public class Verify {
         ClassNode inventory=transform(args[0],"codechicken.nei.recipe.AutoCraftingManager");
         check(calls(inventory,"appendTerminalInventoryItems")==1,"exact inventory hook");
         ClassNode worker=transform(args[0],"codechicken.nei.recipe.AutoCraftingManager$1");
-        check(calls(worker,"canCraft")==1&&calls(worker,"craft")==1&&calls(worker,"beginProcessing")==1&&calls(worker,"recipeReference")==1,"all worker hooks including unresolved recipe lookup must be present");
+        check(calls(worker,"canCraft")==1&&calls(worker,"craft")==1&&calls(worker,"beginProcessing")==1&&calls(worker,"recipeReference")==1&&calls(worker,"completedCrafts")==1,"all worker hooks including authoritative completed count must be present");
+        ClassNode shortcuts=transform(args[0],"codechicken.nei.api.ShortcutInputHandler");
+        check(calls(shortcuts,"ignoreInventoryRoot")==1,"Craft Items records root goals before NEI raises satisfied ones");
         ClassNode slot=transform(args[1],"appeng.container.slot.SlotCraftingTerm");
         check(calls(slot,"cap")==1,"native craft cap hook must exist");
         check(ServerCrafting.cap(16)==16,"ordinary shift not limited");
@@ -52,11 +54,21 @@ public class Verify {
         try{System.setErr(new PrintStream(warnings,true,"UTF-8"));for(int i=0;i<20;i++)BridgeLog.warning("audit-spam","audit warning",null);}
         finally{System.setErr(prior);}
         check(new String(warnings.toByteArray(),StandardCharsets.UTF_8).split("audit warning",-1).length==2,"twenty repeated errors produce one warning within rate window");
-        boundedNbt(); cancellation(); capacity(); goals(); notice();
+        boundedNbt(); cancellation(); capacity(); goals(); notice(); completedCounts();
         ae2nei.core.AE2NEIMod mod=new ae2nei.core.AE2NEIMod();
-        check(mod.compatible(Collections.singletonMap("ae2neiautocraftbridge","1.1.6"),cpw.mods.fml.relauncher.Side.SERVER),"matching new protocol accepted");
-        check(!mod.compatible(Collections.singletonMap("ae2neiautocraftbridge","1.1.5"),cpw.mods.fml.relauncher.Side.CLIENT),"older bridge peer rejected by version handshake");
+        check(mod.compatible(Collections.singletonMap("ae2neiautocraftbridge","1.1.7"),cpw.mods.fml.relauncher.Side.SERVER),"matching new protocol accepted");
+        check(!mod.compatible(Collections.singletonMap("ae2neiautocraftbridge","1.1.6"),cpw.mods.fml.relauncher.Side.CLIENT),"older bridge peer rejected by version handshake");
         System.out.println("PASS: "+assertions+" bytecode/protocol assertions. Native gameplay is checked separately.");
+    }
+    static void completedCounts() {
+        AE2NEICraftingBridge.beginProcessing();
+        check(AE2NEICraftingBridge.recordCompleted(3,64)&&AE2NEICraftingBridge.completedCrafts()==3,"partial batch consumes the confirmed three crafts, not 64");
+        check(AE2NEICraftingBridge.completedCrafts()==64,"ordinary NEI crafting retains the upstream batch contract");
+        check(AE2NEICraftingBridge.recordCompleted(2,2)&&AE2NEICraftingBridge.completedCrafts()==2,"small final batch counts exactly two crafts");
+        check(!AE2NEICraftingBridge.recordCompleted(0,64),"zero completed crafts cannot report progress");
+        AE2NEICraftingBridge.recordCompleted(7,64);AE2NEICraftingBridge.beginProcessing();
+        check(AE2NEICraftingBridge.completedCrafts()==64,"new worker execution cannot inherit an old acknowledgement");
+        for(int value:new int[]{-1,5}){boolean rejected=false;try{AE2NEICraftingBridge.recordCompleted(value,4);}catch(IllegalArgumentException expected){rejected=true;}check(rejected,"invalid confirmed counts rejected");}
     }
     static byte[] gzip(byte[] raw)throws Exception {
         ByteArrayOutputStream out=new ByteArrayOutputStream();
@@ -132,6 +144,12 @@ public class Verify {
         plan.recipeIngredients.add(new Goal("second target",RootPlan.ROOT_RECIPE_ID));
         check(AE2NEICraftingBridge.goalStacks(plan).contains("second target"),"multiple master-root outputs all retained");
         check(AE2NEICraftingBridge.goalStacks(null).isEmpty(),"unknown goal list cannot authorize output relocation");
+        check(AE2NEICraftingBridge.retrievalGoals(plan).size()==2,"Craft Missing retrieves every master-root goal");
+        Object id=new Object();check(AE2NEICraftingBridge.ignoreInventoryRoot(plan,id)==id,"Craft Items root id passes through unchanged");
+        plan.recipeIngredients.set(0,new Goal("target",RootPlan.ROOT_RECIPE_ID));
+        List<Object> retrieve=AE2NEICraftingBridge.retrievalGoals(plan);
+        check(retrieve.size()==1&&retrieve.get(0)==plan.recipeIngredients.get(2),"Craft Items never retrieves a goal NEI raised to its next batch");
+        check(AE2NEICraftingBridge.goalStacks(plan).contains("target"),"a raised goal is still delivered to the player inventory");
     }
     public static class NoticeItem { public String getDisplayName(){return "Steel Plate";} }
     public static class NoticePosition { public Object item=new NoticeItem(); }

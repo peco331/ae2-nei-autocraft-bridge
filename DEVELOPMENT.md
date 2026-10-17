@@ -17,10 +17,21 @@ An ignored `.local-paths.json` may supply `server_root`, `client_mods`, `librari
 ## Checks
 
 ```powershell
-py -3 -B tests/verify.py --bridge "dist/release-1.1.6/ae2-nei-autocraft-bridge-1.1.6.jar" --nei "path/to/NotEnoughItems.jar" --ae2 "path/to/appliedenergistics2.jar"
+py -3 -B tests/verify.py --bridge "dist/release-1.1.7/ae2-nei-autocraft-bridge-1.1.7.jar" --nei "path/to/NotEnoughItems.jar" --ae2 "path/to/appliedenergistics2.jar"
+py -3 -B tests/headless.py --bridge "dist/release-1.1.7/ae2-nei-autocraft-bridge-1.1.7.jar" --nei "path/to/NotEnoughItems.jar"
 ```
 
-Set the same path environment variables as above. This is a small JVM check of the three transformed classes, bounded protocol/NBT decoding, cancellation and successor queue handling, inventory capacity, snapshot consumption, reflection caching and log throttling. It does not launch Minecraft.
+Set the same path environment variables as above. This is a small JVM check of the four transformed classes, bounded protocol/NBT decoding, cancellation and successor queue handling, inventory capacity, snapshot consumption, reflection caching and log throttling. It does not launch Minecraft.
+
+`tests/headless.py` runs with a 128 MiB heap and two logical processors. It reads unchanged `RecipeChainMath`, `RecipeChainIterator` and `RestartableTask` classes from the selected NEI JAR and executes the actual original/patched worker batch loop. It also asks the JVM to verify the full transformed worker. Small test-only value types model solid materials and bookmarks; they do not model fluid containers, GT tool damage, native AE2 inventory movement, GUI input, or recipe overlay resolution. The fixtures never enter the mod JAR.
+
+## 1.1.7 worker corrections
+
+The native NEI loop subtracts 64 after each successful boolean `craft` call. The bridge can acknowledge a partial batch, so that fixed decrement discards real progress information. The worker now consumes the confirmed count once; ordinary overlays retain the upstream default. The regression reproduces a planned batch of 70 with only 9 actually crafted being marked complete for that pass, then checks exact accounting after the patch.
+
+NEI's `RestartableTask` leaves its thread reference set if `execute()` throws. Calling `restart()` then sets flags on a dead thread. The AE2 lookup wrapper now terminates the bridge run normally on recipe lookup exceptions, allowing NEI's normal cleanup and a later retry. This is limited to AE2 bridge workers. `Shift+C` calls NEI's private `autocraftingIgnoreInventory`, which creates the master root and then replaces every goal already met by `getInventoryItems` with a larger next-batch goal. In an AE2 terminal that view includes ME stock, so the 1.1.6 preparation step retrieved the entire stored amount of such goals. The bridge wraps that single `createMasterRoot()` call, records the original root goals by identity, and retrieves only goals NEI did not replace. Crafting counts and output routing are unchanged.
+
+These proven code errors are not evidence that every reported in-game failure has the same cause.
 
 The 1.1.1 baseline previously passed 36 isolated RC1 checks using actual AE2 containers and native crafting with a controlled ME monitor. The original two-turbine output stacking and empty-grid case passed. These checks are server fixtures, not a full client UI acceptance test. The 1.1.1 public package was rebuilt from the same Java sources with updated author/license metadata; official AE2 1078/1082 and NEI 145/159 hooks were checked separately before that release.
 

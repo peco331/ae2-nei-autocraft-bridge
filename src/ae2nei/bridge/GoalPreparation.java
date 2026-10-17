@@ -12,7 +12,7 @@ public final class GoalPreparation {
     public static byte[] encode(Object plan) throws Exception {
         Object entries = Class.forName("net.minecraft.nbt.NBTTagList").newInstance();
         int count = 0;
-        for (Object goal : AE2NEICraftingBridge.goalItems(plan)) {
+        for (Object goal : AE2NEICraftingBridge.retrievalGoals(plan)) {
             long quantity = ((Number) Reflect.call(goal, "getStackSize")).longValue();
             if (quantity <= 0) continue;
             if (++count > MAX_GOALS) throw new IllegalArgumentException("Too many output goals");

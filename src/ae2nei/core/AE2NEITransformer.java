@@ -17,6 +17,8 @@ public class AE2NEITransformer implements IClassTransformer {
             return transformAutoCraftingManager(basicClass);
         } else if (TARGET_AUTO_CRAFTING_TASK.equals(transformedName)) {
             return transformAutoCraftingTask(basicClass);
+        } else if ("codechicken.nei.api.ShortcutInputHandler".equals(transformedName)) {
+            return transformShortcutInputHandler(basicClass);
         } else if ("appeng.container.slot.SlotCraftingTerm".equals(transformedName)) {
             ClassNode cn = new ClassNode();
             new ClassReader(basicClass).accept(cn, 0);
@@ -85,6 +87,37 @@ public class AE2NEITransformer implements IClassTransformer {
         throw new IllegalStateException("Unsupported NEI: getInventoryItems hook not found");
     }
 
+    /** Shift+C raises satisfied root goals after createMasterRoot(); remember the goals as they were before that. */
+    private byte[] transformShortcutInputHandler(byte[] bytes) {
+        ClassNode cn = new ClassNode();
+        new ClassReader(bytes).accept(cn, 0);
+        int matches = 0;
+        for (Object obj : cn.methods) {
+            MethodNode mn = (MethodNode) obj;
+            if (!"autocraftingIgnoreInventory".equals(mn.name) || !"(Lcodechicken/nei/recipe/chain/RecipeChainMath;)V".equals(mn.desc)) continue;
+            for (AbstractInsnNode insn = mn.instructions.getFirst(); insn != null; insn = insn.getNext()) {
+                if (!(insn instanceof MethodInsnNode)) continue;
+                MethodInsnNode minsn = (MethodInsnNode) insn;
+                if (minsn.getOpcode() == Opcodes.INVOKEVIRTUAL && "codechicken/nei/recipe/chain/RecipeChainMath".equals(minsn.owner)
+                    && "createMasterRoot".equals(minsn.name) && "()Lcodechicken/nei/recipe/Recipe$RecipeId;".equals(minsn.desc)) {
+                    // Stack: [math] -> [math, math] -> [math, rootId] -> [rootId]
+                    mn.instructions.insertBefore(minsn, new InsnNode(Opcodes.DUP));
+                    InsnList after = new InsnList();
+                    after.add(new MethodInsnNode(Opcodes.INVOKESTATIC, "ae2nei/bridge/AE2NEICraftingBridge",
+                        "ignoreInventoryRoot", "(Ljava/lang/Object;Ljava/lang/Object;)Ljava/lang/Object;", false));
+                    after.add(new TypeInsnNode(Opcodes.CHECKCAST, "codechicken/nei/recipe/Recipe$RecipeId"));
+                    mn.instructions.insert(minsn, after);
+                    matches++;
+                }
+            }
+        }
+        if (matches != 1) throw new IllegalStateException("Unsupported NEI: autocraftingIgnoreInventory hook count=" + matches);
+        ClassWriter cw = new ClassWriter(ClassWriter.COMPUTE_MAXS);
+        cn.accept(cw);
+        System.out.println("[AE2-NEI-Bridge] Transformed ShortcutInputHandler.autocraftingIgnoreInventory");
+        return cw.toByteArray();
+    }
+
     private byte[] transformAutoCraftingTask(byte[] bytes) {
         ClassReader cr = new ClassReader(bytes);
         ClassNode cn = new ClassNode();
@@ -93,6 +126,7 @@ public class AE2NEITransformer implements IClassTransformer {
         boolean transformedCanCraft = false;
         boolean transformedCraft = false;
         boolean transformedReference = false;
+        int transformedCount = 0;
 
         for (Object obj : cn.methods) {
             MethodNode mn = (MethodNode) obj;
@@ -101,14 +135,26 @@ public class AE2NEITransformer implements IClassTransformer {
                     "ae2nei/bridge/AE2NEICraftingBridge", "beginProcessing", "()V", false));
 
                 for (AbstractInsnNode insn = mn.instructions.getFirst(); insn != null; insn = insn.getNext()) {
+                    if (insn instanceof LdcInsnNode && Long.valueOf(64L).equals(((LdcInsnNode) insn).cst)) {
+                        AbstractInsnNode next = insn.getNext();
+                        while (next != null && next.getOpcode() < 0) next = next.getNext();
+                        if (next != null && next.getOpcode() == Opcodes.LSUB) {
+                            mn.instructions.set(insn, new MethodInsnNode(Opcodes.INVOKESTATIC,
+                                "ae2nei/bridge/AE2NEICraftingBridge", "completedCrafts", "()J", false));
+                            transformedCount++;
+                            // set() detaches insn; resume at the replacement's successor.
+                            insn = next;
+                        }
+                    }
                     if (insn instanceof MethodInsnNode) {
                         MethodInsnNode minsn = (MethodInsnNode) insn;
 
                         if ("codechicken/nei/recipe/RecipeHandlerRef".equals(minsn.owner) && "of".equals(minsn.name)
                             && "(Lcodechicken/nei/recipe/Recipe$RecipeId;)Lcodechicken/nei/recipe/RecipeHandlerRef;".equals(minsn.desc)) {
+                            mn.instructions.insertBefore(minsn, new VarInsnNode(Opcodes.ALOAD, 1));
                             minsn.owner = "ae2nei/bridge/AE2NEICraftingBridge";
                             minsn.name = "recipeReference";
-                            minsn.desc = "(Ljava/lang/Object;)Ljava/lang/Object;";
+                            minsn.desc = "(Ljava/lang/Object;Ljava/lang/Object;)Ljava/lang/Object;";
                             minsn.itf = false;
                             mn.instructions.insert(minsn, new TypeInsnNode(Opcodes.CHECKCAST, "codechicken/nei/recipe/RecipeHandlerRef"));
                             transformedReference = true;
@@ -148,13 +194,13 @@ public class AE2NEITransformer implements IClassTransformer {
             }
         }
 
-        if (transformedCanCraft && transformedCraft && transformedReference) {
+        if (transformedCanCraft && transformedCraft && transformedReference && transformedCount == 1) {
             System.out.println("[AE2-NEI-Bridge] Successfully transformed AutoCraftingManager$1 (canCraft=" + transformedCanCraft + ", craft=" + transformedCraft + ")");
             ClassWriter cw = new ClassWriter(ClassWriter.COMPUTE_MAXS);
             cn.accept(cw);
             return cw.toByteArray();
         }
 
-        throw new IllegalStateException("Unsupported NEI worker: canCraft=" + transformedCanCraft + ", craft=" + transformedCraft + ", reference=" + transformedReference);
+        throw new IllegalStateException("Unsupported NEI worker: canCraft=" + transformedCanCraft + ", craft=" + transformedCraft + ", reference=" + transformedReference + ", count=" + transformedCount);
     }
 }

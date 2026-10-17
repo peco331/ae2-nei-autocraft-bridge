@@ -1,5 +1,17 @@
 # Changelog
 
+## 1.1.7 — Unreleased
+
+- Subtract the server-confirmed number of completed crafts from the NEI worker's remaining batch instead of always subtracting 64. Keep the original batch behavior for ordinary NEI overlays.
+- Catch recipe-reference failures in AE2 bridge tasks so NEI can clear and restart its worker. Keep failures in ordinary crafting outside this bridge handling; isolate recipe-notice failures as well.
+- Add a small JVM regression that executes the original and patched NEI batch loops, verifies the full transformed worker, runs the real NEI planner/iterator, and exercises the real NEI restartable task after a lookup failure. Solid-material fixtures replace Minecraft value types; no game or server starts.
+- Stop `Shift+C` (Craft Items) from moving the whole ME stock of a goal into the player inventory. NEI raises goals already met by the terminal's ME + player view to the next batch; the bridge now records the root goals before that raise and retrieves only unraised goals. A goal of four steel plates with 1900 stored no longer pulls about 1900 plates and then fails for lack of inventory space. `Shift+Ctrl+C` is unchanged.
+- Require matching 1.1.7 bridge versions. The preparation and crafting wire operations retain their existing format.
+
+Validation: 69 bytecode/protocol assertions passed for each of three dependency combinations, and 18 headless worker/planner assertions passed on each of NEI 145 and 159. No game or test server was launched for these checks. Native AE2 inventory movement and client interaction were not revalidated in this revision.
+
+修正部分完成时的计数和配方查找异常后的任务恢复；`Shift+C` 不再把 ME 中目标物品的全部库存搬进背包；这两处代码错误不代表已确定所有现场故障的原因。尚未公开发行，完整客户端流程仍待验收。
+
 ## 1.1.6 — Unreleased
 
 - Retrieve available requested outputs from ME into the player inventory before NEI calculates missing crafts. A goal of four with two stored now retrieves two and crafts the remaining two; already satisfied goals can be collected without crafting.
