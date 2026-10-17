@@ -10,7 +10,7 @@
 
 Validation: 69 bytecode/protocol assertions passed for each of three dependency combinations, and 18 headless worker/planner assertions passed on each of NEI 145 and 159. No game or test server was launched for these checks. Native AE2 inventory movement and client interaction were not revalidated in this revision.
 
-修正部分完成时的计数和配方查找异常后的任务恢复；`Shift+C` 不再把 ME 中目标物品的全部库存搬进背包；这两处代码错误不代表已确定所有现场故障的原因。尚未公开发行，完整客户端流程仍待验收。
+修正部分完成时的计数和配方查找异常后的任务恢复；`Shift+C` 不再把 ME 中目标物品的全部库存搬进背包；这两处代码错误不代表已确定所有现场故障的原因。尚未公开发行。2026-10-17 用户进游戏实测反馈 `Shift+C` 问题基本已修复；该反馈未附日志或前后数量记录，更多客户端场景（大型 ME 网络、NBT 不精确匹配等）未系统验收。
 
 ## 1.1.6 — Unreleased
 
